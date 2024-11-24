@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Noise Monitoring Dashboard</title>
+    
     <style>
         * {
             margin: 0;
@@ -36,16 +37,6 @@
             font-size: 2.2em;
             font-weight: 700;
             position: relative;
-        }
-
-        h1::after {
-            content: '';
-            display: block;
-            width: 60px;
-            height: 4px;
-            background-color: #007bff;
-            margin: 10px auto;
-            border-radius: 2px;
         }
 
         .controls {
@@ -129,7 +120,13 @@
             box-shadow: none;
         }
 
-        #chart {
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #chart-container {
             width: 100%;
             height: 450px;
             margin-top: 30px;
@@ -138,6 +135,11 @@
             padding: 20px;
             background-color: white;
             box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05);
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
         }
 
         .loading {
@@ -173,12 +175,6 @@
             font-weight: 500;
         }
 
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
         .chart-statistics {
             display: flex;
             justify-content: space-around;
@@ -186,6 +182,8 @@
             background-color: #f8f9fa;
             border-radius: 6px;
             margin-top: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
         }
 
         .stat-item {
@@ -203,9 +201,16 @@
             font-weight: 600;
         }
 
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
+                margin: 0 10px;
             }
 
             .controls {
@@ -217,26 +222,111 @@
                 font-size: 1.8em;
             }
 
-            #chart {
+            #chart-container {
                 height: 350px;
             }
 
             button {
                 width: 100%;
             }
+
+            .chart-statistics {
+                flex-direction: column;
+                align-items: center;
+            }
         }
     </style>
+
+    <script>
+        // 脚本加载器
+        function loadScripts() {
+            return new Promise((resolve) => {
+                // 首先加载 Chart.js
+                const chartScript = document.createElement('script');
+                chartScript.src = 'https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js';
+                
+                chartScript.onload = function() {
+                    console.log('Chart.js loaded successfully');
+                    // Chart.js 加载完成后加载 Luxon
+                    const luxonScript = document.createElement('script');
+                    luxonScript.src = 'https://cdn.jsdelivr.net/npm/luxon@3.0.1/build/global/luxon.min.js';
+                    
+                    luxonScript.onload = function() {
+                        console.log('Luxon loaded successfully');
+                        // Luxon 加载完成后加载适配器
+                        const adapterScript = document.createElement('script');
+                        adapterScript.src = 'https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.1.0/dist/chartjs-adapter-luxon.min.js';
+                        
+                        adapterScript.onload = function() {
+                            console.log('Chart.js adapter loaded successfully');
+                            resolve(); // 全部加载完成
+                        };
+                        
+                        adapterScript.onerror = function() {
+                            console.error('Failed to load Chart.js adapter');
+                            resolve(); // 即使失败也继续
+                        };
+                        
+                        document.head.appendChild(adapterScript);
+                    };
+                    
+                    luxonScript.onerror = function() {
+                        console.error('Failed to load Luxon');
+                        resolve(); // 即使失败也继续
+                    };
+                    
+                    document.head.appendChild(luxonScript);
+                };
+                
+                chartScript.onerror = function() {
+                    console.error('Failed to load Chart.js');
+                    resolve(); // 即使失败也继续
+                };
+                
+                document.head.appendChild(chartScript);
+            });
+        }
+
+        // 等待 DOM 加载完成并初始化应用
+        window.addEventListener('load', async function() {
+            try {
+                await loadScripts();
+                
+                // 验证所需的库是否已加载
+                if (typeof Chart === 'undefined') {
+                    throw new Error('Chart.js failed to load');
+                }
+
+                console.log('All scripts loaded, initializing application...');
+                
+                // 加载应用程序模块
+                const app = await import('./js/app.js');
+                new app.default();
+                
+                console.log('Application initialized successfully');
+            } catch (error) {
+                console.error('Error initializing application:', error);
+                document.getElementById('loadingIndicator').style.display = 'none';
+                
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.textContent = 'Failed to initialize application. Please refresh the page or contact support.';
+                document.querySelector('.container').appendChild(errorDiv);
+            }
+        });
+    </script>
 </head>
 <body>
     <div class="container">
         <h1>Noise Monitoring Dashboard</h1>
         
-        <div class="control-group">
-            <label for="monitor">Select Monitor:</label>
-            <select id="monitor">
-                <option value="">Select a monitor...</option>
-            </select>
-        </div>
+        <div class="controls">
+            <div class="control-group">
+                <label for="monitor">Select Monitor:</label>
+                <select id="monitor">
+                    <option value="">Select a monitor...</option>
+                </select>
+            </div>
             
             <div class="control-group">
                 <label for="dataType">Data Type:</label>
@@ -259,25 +349,10 @@
         
         <button id="fetchData">Fetch Data</button>
         <div id="loadingIndicator" class="loading" style="display: none;">Loading data...</div>
-        <div id="chart"></div>
+        
+        <div id="chart-container">
+            <canvas id="chart"></canvas>
+        </div>
     </div>
-
-    <!-- Chart.js library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
-    
-    <!-- Application scripts -->
-    <script type="module">
-        // Import necessary modules
-        import { config } from './js/config.js';
-        import api from './js/api.js';
-        import utils from './js/utils.js';
-        import chartModule from './js/chart.js';
-        import NoiseMonitoringApp from './js/app.js';
-
-        // Initialize application when DOM is loaded
-        document.addEventListener('DOMContentLoaded', () => {
-            new NoiseMonitoringApp();
-        });
-    </script>
 </body>
 </html>

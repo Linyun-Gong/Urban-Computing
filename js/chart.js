@@ -1,61 +1,78 @@
 /**
- * Chart module
- * Handles all chart-related functionality
+ * Chart module for noise monitoring
  */
 const chartModule = {
     chart: null,
+
+    /**
+     * Formats date for display
+     * @param {string} datetime - Datetime string
+     * @returns {string} Formatted datetime
+     */
+    formatDateTime(datetime) {
+        const date = new Date(datetime);
+        return date.toLocaleString();
+    },
 
     /**
      * Updates or creates the chart with new data
      * @param {Array} data - Array of noise data points
      */
     updateChart(data) {
-        // Extract main data (e.g., LAeq for noise levels)
-        const laeqValues = data.map(item => item.laeq); // Use `laeq` as primary y-axis data
-        const labels = data.map(item => new Date(item.datetime).toLocaleString()); // Use `datetime` as x-axis labels
+        if (!data || data.length === 0) {
+            console.error('No data provided to updateChart');
+            return;
+        }
 
-        // Calculate Simple Moving Average (SMA) for trend line
-        const smaValues = this.calculateSMA(laeqValues, 5); // Use window size of 5
+        const canvas = document.getElementById('chart');
+        if (!canvas) {
+            console.error('Chart canvas element not found');
+            return;
+        }
 
+        // Destroy existing chart if present
+        this.destroyChart();
+
+        // Process the data for multiple metrics
         const chartData = {
-            labels,
+            labels: data.map(item => this.formatDateTime(item.datetime)),
             datasets: [
                 {
-                    label: 'Noise Level (LAeq, dB)',
-                    data: laeqValues,
+                    label: 'LAeq (dB)',
+                    data: data.map(item => item.laeq),
                     borderColor: '#007bff',
                     backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                    tension: 0.1,
                     fill: true,
+                    tension: 0.1,
                     pointRadius: 2,
                     pointHoverRadius: 5,
-                    pointBackgroundColor: '#007bff',
-                    pointHoverBackgroundColor: '#0056b3',
-                    pointBorderColor: '#fff',
-                    pointHoverBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointHoverBorderWidth: 2
+                    yAxisID: 'y'
                 },
                 {
-                    label: 'Trend Line (SMA)',
-                    data: smaValues,
-                    borderColor: '#ff0000',
-                    borderDash: [5, 5], // Dashed line for trend
+                    label: 'LA10 (dB)',
+                    data: data.map(item => item.la10),
+                    borderColor: '#28a745',
+                    borderDash: [5, 5],
+                    fill: false,
                     tension: 0.1,
-                    pointRadius: 0, // No points for trend line
-                    fill: false
+                    pointRadius: 0,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'LA90 (dB)',
+                    data: data.map(item => item.la90),
+                    borderColor: '#dc3545',
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0.1,
+                    pointRadius: 0,
+                    yAxisID: 'y'
                 }
             ]
         };
 
-        // Destroy existing chart if present
-        if (this.chart) {
-            this.chart.destroy();
-        }
-
-        // Create new chart
-        const ctx = document.getElementById('chart').getContext('2d');
-        this.chart = new Chart(ctx, {
+        // Create new chart with simplified time handling
+        this.chart = new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: chartData,
             options: {
@@ -65,109 +82,91 @@ const chartModule = {
                     intersect: false,
                     mode: 'index'
                 },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        },
+                        ticks: {
+                            maxTicksLimit: 10,
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Noise Level (dB)'
+                        },
+                        min: function(ctx) {
+                            const values = data.map(item => Math.min(item.laeq, item.la90));
+                            return Math.floor(Math.min(...values) / 10) * 10;
+                        },
+                        max: function(ctx) {
+                            const values = data.map(item => Math.max(item.laeq, item.la10));
+                            return Math.ceil(Math.max(...values) / 10) * 10;
+                        }
+                    }
+                },
                 plugins: {
                     legend: {
                         position: 'top',
                         labels: {
-                            font: {
-                                size: 14
-                            }
+                            usePointStyle: true,
+                            pointStyle: 'circle'
                         }
                     },
                     tooltip: {
                         mode: 'index',
                         intersect: false,
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleFont: {
-                            size: 14
-                        },
-                        bodyFont: {
-                            size: 13
-                        },
                         callbacks: {
-                            label: function (context) {
-                                return `Noise Level: ${context.raw?.toFixed(2)} dB`;
+                            label: function(context) {
+                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)} dB`;
                             }
                         }
-                    }
-                },
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: {
-                            unit: 'minute',
-                            displayFormats: {
-                                minute: 'MMM D, HH:mm'
-                            }
-                        },
-                        title: {
-                            display: true,
-                            text: 'Time',
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
-                        },
-                        grid: {
-                            display: true,
-                            color: 'rgba(0, 0, 0, 0.1)'
-                        }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Noise Level (dB)',
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
-                        },
-                        grid: {
-                            display: true,
-                            color: 'rgba(0, 0, 0, 0.1)'
-                        }
-                    }
-                },
-                animations: {
-                    tension: {
-                        duration: 1000,
-                        easing: 'linear'
                     }
                 }
             }
         });
 
-        // Add statistics to the chart
+        // Add statistics
         this.addStatistics(data);
     },
 
     /**
-     * Adds statistics to the chart (e.g., min, max, average)
+     * Adds statistics to the chart
      * @param {Array} data - Array of noise data points
      */
     addStatistics(data) {
-        const values = data.map(item => item.laeq); // Use `laeq` for statistics
         const stats = {
-            min: Math.min(...values).toFixed(1),
-            max: Math.max(...values).toFixed(1),
-            avg: (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1)
+            laeq: {
+                min: Math.min(...data.map(item => item.laeq)).toFixed(1),
+                max: Math.max(...data.map(item => item.laeq)).toFixed(1),
+                avg: (data.reduce((sum, item) => sum + item.laeq, 0) / data.length).toFixed(1)
+            },
+            la10: {
+                avg: (data.reduce((sum, item) => sum + item.la10, 0) / data.length).toFixed(1)
+            },
+            la90: {
+                avg: (data.reduce((sum, item) => sum + item.la90, 0) / data.length).toFixed(1)
+            }
         };
 
         const statsDiv = document.createElement('div');
         statsDiv.className = 'chart-statistics';
         statsDiv.innerHTML = `
             <div class="stat-item">
-                <span class="stat-label">Min:</span>
-                <span class="stat-value">${stats.min} dB</span>
+                <span class="stat-label">LAeq:</span>
+                <span class="stat-value">Min: ${stats.laeq.min} dB / Avg: ${stats.laeq.avg} dB / Max: ${stats.laeq.max} dB</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Max:</span>
-                <span class="stat-value">${stats.max} dB</span>
+                <span class="stat-label">LA10 Avg:</span>
+                <span class="stat-value">${stats.la10.avg} dB</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Average:</span>
-                <span class="stat-value">${stats.avg} dB</span>
+                <span class="stat-label">LA90 Avg:</span>
+                <span class="stat-value">${stats.la90.avg} dB</span>
             </div>
         `;
 
@@ -177,26 +176,6 @@ const chartModule = {
             existingStats.remove();
         }
         chartContainer.appendChild(statsDiv);
-    },
-
-    /**
-     * Calculates Simple Moving Average (SMA)
-     * @param {Array<number>} data - Data points
-     * @param {number} windowSize - Window size for moving average
-     * @returns {Array<number>} SMA values
-     */
-    calculateSMA(data, windowSize) {
-        const sma = [];
-        for (let i = 0; i < data.length; i++) {
-            if (i < windowSize - 1) {
-                sma.push(null); // Not enough data points for the window
-            } else {
-                const windowData = data.slice(i - windowSize + 1, i + 1);
-                const average = windowData.reduce((a, b) => a + b, 0) / windowSize;
-                sma.push(average);
-            }
-        }
-        return sma;
     },
 
     /**

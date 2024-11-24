@@ -208,21 +208,66 @@ class NoiseMonitoringApp {
      * Updates the chart with new data
      */
     async updateChartData(monitor, startTime, endTime) {
-        try {
-            const data = await api.getData(monitor, utils.formatDate(startTime), utils.formatDate(endTime));
+    try {
+        const data = await api.getData(monitor, utils.formatDate(startTime), utils.formatDate(endTime));
+        
+        // 验证数据
+        console.log('Raw API data:', data);
+        
+        if (!Array.isArray(data)) {
+            throw new Error('API returned invalid data format');
+        }
+        
+        if (data.length === 0) {
+            utils.showError('No data available for the selected time period');
+            return;
+        }
+
+        // 验证数据格式
+        const validData = data.map(item => {
+            // 检查必需的字段
+            if (!item.datetime || !item.laeq || !item.la10 || !item.la90) {
+                console.warn('Invalid data item:', item);
+                return null;
+            }
             
-            if (data.length === 0) {
-                utils.showError('No data available for the selected time period');
-                return;
+            // 验证数值
+            const laeq = Number(item.laeq);
+            const la10 = Number(item.la10);
+            const la90 = Number(item.la90);
+            
+            if (isNaN(laeq) || isNaN(la10) || isNaN(la90)) {
+                console.warn('Invalid numeric values:', item);
+                return null;
             }
 
-            chartModule.updateChart(data);
-            this.updateDataInfo(startTime, endTime, data.length);
+            return {
+                datetime: item.datetime,
+                laeq: laeq,
+                la10: la10,
+                la90: la90,
+                lafmax: Number(item.lafmax),
+                lceq: Number(item.lceq),
+                lcfmax: Number(item.lcfmax),
+                lc10: Number(item.lc10),
+                lc90: Number(item.lc90)
+            };
+        }).filter(Boolean);
 
-        } catch (error) {
-            utils.showError(`Failed to update chart: ${error.message}`);
+        if (validData.length === 0) {
+            utils.showError('No valid data points found');
+            return;
         }
+
+        console.log('Processed data:', validData);
+        chartModule.updateChart(validData);
+        this.updateDataInfo(startTime, endTime, validData.length);
+
+    } catch (error) {
+        console.error('Error in updateChartData:', error);
+        utils.showError(`Failed to update chart: ${error.message}`);
     }
+}
 
     /**
      * Updates the data information display
