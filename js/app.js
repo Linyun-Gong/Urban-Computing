@@ -163,6 +163,11 @@ class NoiseMonitoringApp {
      */
     async fetchAndDisplayData() {
         try {
+            console.log('Request parameters:', {
+                monitor,
+                startTime: utils.formatDate(startTime),
+                endTime: utils.formatDate(endTime)
+            });
             if (this.isLoading) return;
             this.isLoading = true;
             utils.showLoading(true);
@@ -208,66 +213,49 @@ class NoiseMonitoringApp {
      * Updates the chart with new data
      */
     async updateChartData(monitor, startTime, endTime) {
-    try {
-        const data = await api.getData(monitor, utils.formatDate(startTime), utils.formatDate(endTime));
-        
-        // 验证数据
-        console.log('Raw API data:', data);
-        
-        if (!Array.isArray(data)) {
-            throw new Error('API returned invalid data format');
-        }
-        
-        if (data.length === 0) {
-            utils.showError('No data available for the selected time period');
-            return;
-        }
-
-        // 验证数据格式
-        const validData = data.map(item => {
-            // 检查必需的字段
-            if (!item.datetime || !item.laeq || !item.la10 || !item.la90) {
-                console.warn('Invalid data item:', item);
-                return null;
+        try {
+            const data = await api.getData(monitor, utils.formatDate(startTime), utils.formatDate(endTime));
+    
+            console.log('Raw API data:', data);
+    
+            // 验证数据有效性
+            const validData = data.map(item => {
+                if (!item.datetime || isNaN(item.laeq) || isNaN(item.la10) || isNaN(item.la90)) {
+                    console.warn('Invalid data item:', item);
+                    return null;
+                }
+    
+                return {
+                    datetime: new Date(item.datetime), // 转换为 Date 对象
+                    laeq: parseFloat(item.laeq),
+                    la10: parseFloat(item.la10),
+                    la90: parseFloat(item.la90),
+                    lafmax: parseFloat(item.lafmax),
+                    lceq: parseFloat(item.lceq),
+                    lcfmax: parseFloat(item.lcfmax),
+                    lc10: parseFloat(item.lc10),
+                    lc90: parseFloat(item.lc90),
+                };
+            }).filter(Boolean); // 过滤无效数据
+    
+            if (validData.length === 0) {
+                utils.showError('No valid data points found');
+                return;
             }
-            
-            // 验证数值
-            const laeq = Number(item.laeq);
-            const la10 = Number(item.la10);
-            const la90 = Number(item.la90);
-            
-            if (isNaN(laeq) || isNaN(la10) || isNaN(la90)) {
-                console.warn('Invalid numeric values:', item);
-                return null;
-            }
+    
+            console.log('Processed data:', validData);
+            console.log('API Response Data:', data);
+            console.log('Valid Data:', validData);
 
-            return {
-                datetime: item.datetime,
-                laeq: laeq,
-                la10: la10,
-                la90: la90,
-                lafmax: Number(item.lafmax),
-                lceq: Number(item.lceq),
-                lcfmax: Number(item.lcfmax),
-                lc10: Number(item.lc10),
-                lc90: Number(item.lc90)
-            };
-        }).filter(Boolean);
-
-        if (validData.length === 0) {
-            utils.showError('No valid data points found');
-            return;
+            chartModule.updateChart(validData);
+            this.updateDataInfo(startTime, endTime, validData.length);
+    
+        } catch (error) {
+            console.error('Error in updateChartData:', error);
+            utils.showError(`Failed to update chart: ${error.message}`);
         }
-
-        console.log('Processed data:', validData);
-        chartModule.updateChart(validData);
-        this.updateDataInfo(startTime, endTime, validData.length);
-
-    } catch (error) {
-        console.error('Error in updateChartData:', error);
-        utils.showError(`Failed to update chart: ${error.message}`);
     }
-}
+    
 
     /**
      * Updates the data information display

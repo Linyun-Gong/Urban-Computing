@@ -134,7 +134,17 @@ const utils = {
         }
 
         return true;
+    },
+
+    formatDate(date) {
+        if (typeof date === 'string') {
+            // 如果是字符串格式，确保转换为正确的 ISO 格式
+            return new Date(date).toISOString();
+        }
+        // 如果是 Date 对象，直接转换为 ISO 格式
+        return date.toISOString();
     }
+    
 };
 
 export default utils;

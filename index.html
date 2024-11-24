@@ -238,80 +238,524 @@
     </style>
 
     <script>
-        // 脚本加载器
-        function loadScripts() {
-            return new Promise((resolve) => {
-                // 首先加载 Chart.js
-                const chartScript = document.createElement('script');
-                chartScript.src = 'https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js';
-                
-                chartScript.onload = function() {
-                    console.log('Chart.js loaded successfully');
-                    // Chart.js 加载完成后加载 Luxon
-                    const luxonScript = document.createElement('script');
-                    luxonScript.src = 'https://cdn.jsdelivr.net/npm/luxon@3.0.1/build/global/luxon.min.js';
+        // API 模块
+        const api = {
+            BASE_URL: 'http://localhost:3000',
+            credentials: {
+                username: 'dublincityapi',
+                password: 'Xpa5vAQ9ki'
+            },
+
+            dateToUnixTimestamp(date) {
+                return Math.floor(date.getTime() / 1000);
+            },
+
+            async makeRequest(endpoint, params = {}) {
+                try {
+                    const response = await fetch(`${this.BASE_URL}${endpoint}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: new URLSearchParams({
+                            username: this.credentials.username,
+                            password: this.credentials.password,
+                            ...params
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('API Error:', {
+                            status: response.status,
+                            statusText: response.statusText,
+                            error: errorText
+                        });
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('Request failed:', error);
+                    throw error;
+                }
+            },
+
+            async getMonitors() {
+                try {
+                    const data = await this.makeRequest('/api/monitors');
+                    console.log('Raw monitors data:', data);
+
+                    const monitorsArray = Array.isArray(data) ? data : (data.monitors || []);
                     
-                    luxonScript.onload = function() {
-                        console.log('Luxon loaded successfully');
-                        // Luxon 加载完成后加载适配器
-                        const adapterScript = document.createElement('script');
-                        adapterScript.src = 'https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.1.0/dist/chartjs-adapter-luxon.min.js';
-                        
-                        adapterScript.onload = function() {
-                            console.log('Chart.js adapter loaded successfully');
-                            resolve(); // 全部加载完成
-                        };
-                        
-                        adapterScript.onerror = function() {
-                            console.error('Failed to load Chart.js adapter');
-                            resolve(); // 即使失败也继续
-                        };
-                        
-                        document.head.appendChild(adapterScript);
-                    };
+                    // 过滤包含 'noise' 的监测点
+                    const noiseMonitors = monitorsArray.filter(monitor => 
+                        monitor && 
+                        typeof monitor === 'object' && 
+                        monitor.label && 
+                        monitor.label.toLowerCase().includes('noise')
+                    );
+
+                    console.log('Filtered noise monitors:', noiseMonitors);
+
+                    // 格式化监测点数据
+                    const formattedMonitors = noiseMonitors.map(monitor => ({
+                        id: monitor.id || monitor.serial_number,
+                        displayName: `${monitor.label} - ${monitor.location || 'Unknown'}`,
+                        name: monitor.label,
+                        location: monitor.location || 'Unknown',
+                        latitude: monitor.latitude,
+                        longitude: monitor.longitude,
+                        ...monitor
+                    })).sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+                    console.log('Formatted monitors:', formattedMonitors);
+                    return formattedMonitors;
+                } catch (error) {
+                    console.error('Error fetching monitors:', error);
+                    throw new Error(`Failed to fetch monitors: ${error.message}`);
+                }
+            },
+
+            async getData(monitorId, startTime, endTime) {
+                try {
+                    const startTimestamp = this.dateToUnixTimestamp(new Date(startTime));
+                    const endTimestamp = this.dateToUnixTimestamp(new Date(endTime));
+
+                    console.log('Fetching data:', { monitorId, startTimestamp, endTimestamp });
                     
-                    luxonScript.onerror = function() {
-                        console.error('Failed to load Luxon');
-                        resolve(); // 即使失败也继续
-                    };
-                    
-                    document.head.appendChild(luxonScript);
+                    const data = await this.makeRequest('/api/data', {
+                        monitor: monitorId,
+                        start: startTimestamp,
+                        end: endTimestamp
+                    });
+
+                    return Array.isArray(data) ? data : (data.measurements || []);
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                    throw new Error(`Failed to fetch data: ${error.message}`);
+                }
+            }
+        };
+
+        // 图表模块
+        const chartModule = {
+            chart: null,
+
+            formatDateTime(datetime) {
+                return new Date(datetime).toLocaleString();
+            },
+
+            destroyChart() {
+                if (this.chart) {
+                    this.chart.destroy();
+                    this.chart = null;
+                }
+            },
+
+            updateChart(data) {
+                console.log('Updating chart with data:', data);
+                const canvas = document.getElementById('chart');
+                this.destroyChart();
+
+                // 确保数据有效并排序
+                const validData = data
+                    .filter(item => (
+                        item &&
+                        item.datetime &&
+                        !isNaN(parseFloat(item.laeq)) &&
+                        !isNaN(parseFloat(item.lafmax)) &&
+                        !isNaN(parseFloat(item.la90))
+                    ))
+                    .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+
+                if (validData.length === 0) {
+                    console.error('No valid data points found');
+                    return;
+                }
+
+                const chartData = {
+                    labels: validData.map(item => new Date(item.datetime)),
+                    datasets: [
+                        {
+                            label: 'LAeq (dB)',
+                            data: validData.map(item => ({
+                                x: new Date(item.datetime),
+                                y: parseFloat(item.laeq)
+                            })),
+                            borderColor: '#007bff',
+                            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                            fill: true,
+                            tension: 0.1,
+                            borderWidth: 4,         
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'LAFmax (dB)',
+                            data: validData.map(item => ({
+                                x: new Date(item.datetime),
+                                y: parseFloat(item.lafmax)
+                            })),
+                            borderColor: '#28a745',
+                            fill: false,
+                            tension: 0.1,
+                            borderWidth: 2,         
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'LA90 (dB)',
+                            data: validData.map(item => ({
+                                x: new Date(item.datetime),
+                                y: parseFloat(item.la90)
+                            })),
+                            borderColor: '#dc3545',
+                            fill: false,
+                            tension: 0.1,
+                            borderWidth: 2,         
+                            pointRadius: 0
+                        }
+                    ]
                 };
-                
-                chartScript.onerror = function() {
-                    console.error('Failed to load Chart.js');
-                    resolve(); // 即使失败也继续
+
+                this.chart = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: chartData,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'hour',
+                                    displayFormats: {
+                                        hour: 'HH:mm'
+                                    }
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Time'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Noise Level (dB)'
+                                },
+                                min: function(ctx) {
+                                    const values = validData.map(item => 
+                                        Math.min(
+                                            parseFloat(item.laeq), 
+                                            parseFloat(item.la90)
+                                        )
+                                    );
+                                    return Math.floor(Math.min(...values) / 10) * 10;
+                                },
+                                max: function(ctx) {
+                                    const values = validData.map(item => 
+                                        Math.max(
+                                            parseFloat(item.laeq), 
+                                            parseFloat(item.lafmax)
+                                        )
+                                    );
+                                    return Math.ceil(Math.max(...values) / 10) * 10;
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    usePointStyle: true,
+                                    pointStyle: 'circle'
+                                }
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(1)} dB`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // 添加统计信息
+                this.addStatistics(validData);
+            },
+
+            addStatistics(data) {
+                const stats = {
+                    laeq: {
+                        min: Math.min(...data.map(item => parseFloat(item.laeq))).toFixed(1),
+                        max: Math.max(...data.map(item => parseFloat(item.laeq))).toFixed(1),
+                        avg: (data.reduce((sum, item) => sum + parseFloat(item.laeq), 0) / data.length).toFixed(1)
+                    },
+                    lafmax: {
+                        avg: (data.reduce((sum, item) => sum + parseFloat(item.lafmax), 0) / data.length).toFixed(1),
+                        max: Math.max(...data.map(item => parseFloat(item.lafmax))).toFixed(1)
+                    },
+                    la90: {
+                        avg: (data.reduce((sum, item) => sum + parseFloat(item.la90), 0) / data.length).toFixed(1)
+                    }
                 };
+
+                const statsDiv = document.createElement('div');
+                statsDiv.className = 'chart-statistics';
+                statsDiv.innerHTML = `
+                    <div class="stat-item">
+                        <span class="stat-label">LAeq:</span>
+                        <span class="stat-value">Min: ${stats.laeq.min} dB / Avg: ${stats.laeq.avg} dB / Max: ${stats.laeq.max} dB</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">LAFmax:</span>
+                        <span class="stat-value">Avg: ${stats.lafmax.avg} dB / Max: ${stats.lafmax.max} dB</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">LA90 Avg:</span>
+                        <span class="stat-value">${stats.la90.avg} dB</span>
+                    </div>
+                `;
+
+                const chartContainer = document.getElementById('chart-container');
+                const existingStats = chartContainer.querySelector('.chart-statistics');
+                if (existingStats) {
+                    existingStats.remove();
+                }
+                chartContainer.appendChild(statsDiv);
+            }
+        };
+
+        // 工具函数模块
+        const utils = {
+            showError(message) {
+                const container = document.querySelector('.container');
+                const existingError = container.querySelector('.error');
+                if (existingError) {
+                    existingError.remove();
+                }
                 
-                document.head.appendChild(chartScript);
-            });
+                const error = document.createElement('div');
+                error.className = 'error';
+                error.textContent = message;
+                container.appendChild(error);
+            },
+
+            showLoading(show) {
+                document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
+            },
+
+            setDefaultDates() {
+                const now = new Date();
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                
+                document.getElementById('startTime').value = this.formatDateTimeLocal(yesterday);
+                document.getElementById('endTime').value = this.formatDateTimeLocal(now);
+            },
+
+            formatDateTimeLocal(date) {
+                return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .slice(0, 16);
+            }
+        };
+
+        // 应用主类
+        class NoiseMonitoringApp {
+            constructor() {
+                this.updateInterval = null;
+                this.isLoading = false;
+                this.currentMonitor = null;
+                this.isRealtime = false;
+                this.initialize();
+            }
+
+            async initialize() {
+                try {
+                    utils.showLoading(true);
+                    await this.loadMonitors();
+                    this.setupEventListeners();
+                    utils.setDefaultDates();
+                } catch (error) {
+                    console.error('Initialization error:', error);
+                    utils.showError(error.message);
+                } finally {
+                    utils.showLoading(false);
+                }
+            }
+
+            async loadMonitors() {
+                try {
+                    const monitors = await api.getMonitors();
+                    const select = document.getElementById('monitor');
+                    select.innerHTML = '<option value="">Select a monitor...</option>';
+                    
+                    monitors.forEach(monitor => {
+                        const option = document.createElement('option');
+                        option.value = monitor.id;
+                        option.textContent = monitor.displayName;
+                        select.appendChild(option);
+                    });
+                } catch (error) {
+                    throw new Error(`Failed to load monitors: ${error.message}`);
+                }
+            }
+
+            setupEventListeners() {
+                document.getElementById('dataType').addEventListener('change', () => {
+                    const isRealtime = document.getElementById('dataType').value === 'realtime';
+                    document.getElementById('endTimeGroup').style.display = isRealtime ? 'none' : 'block';
+                    this.isRealtime = isRealtime;
+                    
+                    if (this.updateInterval) {
+                        clearInterval(this.updateInterval);
+                        this.updateInterval = null;
+                    }
+                });
+
+                document.getElementById('monitor').addEventListener('change', (e) => {
+                    this.currentMonitor = e.target.value;
+                    if (chartModule.chart) {
+                        chartModule.destroyChart();
+                    }
+                });
+
+                document.getElementById('fetchData').addEventListener('click', () => this.fetchAndDisplayData());
+            }
+
+            async fetchAndDisplayData() {
+                if (this.isLoading) return;
+
+                try {
+                    this.isLoading = true;
+                    utils.showLoading(true);
+
+                    const monitor = document.getElementById('monitor').value;
+                    if (!monitor) {
+                        throw new Error('Please select a monitor');
+                    }
+
+                    const startTime = document.getElementById('startTime').value;
+                    const endTime = this.isRealtime ? new Date().toISOString() : document.getElementById('endTime').value;
+                    if (!this.validateTimeInputs()) {
+                        return;
+                    }
+
+                    if (this.updateInterval) {
+                        clearInterval(this.updateInterval);
+                        this.updateInterval = null;
+                    }
+
+                    await this.updateChartData(monitor, startTime, endTime);
+
+                    if (this.isRealtime) {
+                        this.updateInterval = setInterval(async () => {
+                            const newEndTime = new Date().toISOString();
+                            await this.updateChartData(monitor, startTime, newEndTime);
+                        }, 5 * 60 * 1000); // 5分钟更新一次
+                    }
+
+                } catch (error) {
+                    utils.showError(error.message);
+                } finally {
+                    this.isLoading = false;
+                    utils.showLoading(false);
+                }
+            }
+
+            validateTimeInputs() {
+                const startTime = new Date(document.getElementById('startTime').value);
+                const endTime = new Date(document.getElementById('endTime').value);
+
+                if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+                    utils.showError('Please enter valid dates');
+                    return false;
+                }
+
+                if (startTime >= endTime) {
+                    utils.showError('Start time must be before end time');
+                    return false;
+                }
+
+                const timeDiff = endTime - startTime;
+                const maxDiff = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+
+                if (timeDiff > maxDiff) {
+                    utils.showError('Time range cannot exceed 7 days');
+                    return false;
+                }
+
+                return true;
+            }
+
+            async updateChartData(monitor, startTime, endTime) {
+                try {
+                    const data = await api.getData(monitor, startTime, endTime);
+                    console.log('Received data:', data);
+
+                    if (!data || data.length === 0) {
+                        throw new Error('No data available for the selected time range');
+                    }
+
+                    chartModule.updateChart(data);
+                } catch (error) {
+                    throw error;
+                }
+            }
         }
 
-        // 等待 DOM 加载完成并初始化应用
-        window.addEventListener('load', async function() {
+        // 初始化脚本
+        async function loadScripts() {
+            const scripts = [
+                'https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js',
+                'https://cdn.jsdelivr.net/npm/luxon@3.0.1/build/global/luxon.min.js',
+                'https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.1.0/dist/chartjs-adapter-luxon.min.js'
+            ];
+
+            const loadScript = (src) => {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+                    document.head.appendChild(script);
+                });
+            };
+
+            try {
+                for (const src of scripts) {
+                    await loadScript(src);
+                    console.log(`Loaded: ${src}`);
+                }
+            } catch (error) {
+                console.error('Script loading error:', error);
+                throw error;
+            }
+        }
+
+        // 应用初始化
+        window.addEventListener('load', async () => {
             try {
                 await loadScripts();
                 
-                // 验证所需的库是否已加载
                 if (typeof Chart === 'undefined') {
                     throw new Error('Chart.js failed to load');
                 }
 
                 console.log('All scripts loaded, initializing application...');
-                
-                // 加载应用程序模块
-                const app = await import('./js/app.js');
-                new app.default();
-                
+                new NoiseMonitoringApp();
                 console.log('Application initialized successfully');
             } catch (error) {
                 console.error('Error initializing application:', error);
-                document.getElementById('loadingIndicator').style.display = 'none';
-                
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error';
-                errorDiv.textContent = 'Failed to initialize application. Please refresh the page or contact support.';
-                document.querySelector('.container').appendChild(errorDiv);
+                utils.showError('Failed to initialize application: ' + error.message);
             }
         });
     </script>
@@ -347,7 +791,7 @@
             </div>
         </div>
         
-        <button id="fetchData">Fetch Data</button>
+        <button id="fetchData">Show Data</button>
         <div id="loadingIndicator" class="loading" style="display: none;">Loading data...</div>
         
         <div id="chart-container">
