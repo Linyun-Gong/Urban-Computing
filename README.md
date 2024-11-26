@@ -4,6 +4,9 @@ Noise Monitoring Dashboard is a web-based noise monitoring system that analyzes 
 ## API called:
 https://data.smartdublin.ie/dataset/sonitus
 
+## Get code:
+git clone https://github.com/Linyun-Gong/Urban-Computing.git
+
 ## Run Command：
 ### Run the proxy server
 _npm install express cors dotenv mysql2_
