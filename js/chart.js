@@ -4,19 +4,41 @@
 const chartModule = {
     chart: null,
 
-    /**
-     * Formats date for display
-     * @param {string} datetime - Datetime string
-     * @returns {string} Formatted datetime
-     */
-    formatDateTime(datetime) {
-        const date = new Date(datetime);
-        return date.toLocaleString();
+    // 颜色配置
+    colors: {
+        single: {
+            laeq: '#007bff',
+            la10: '#28a745',
+            la90: '#dc3545'
+        },
+        multiple: [
+            { primary: '#007bff', secondary: 'rgba(0, 123, 255, 0.1)' },
+            { primary: '#28a745', secondary: 'rgba(40, 167, 69, 0.1)' },
+            { primary: '#dc3545', secondary: 'rgba(220, 53, 69, 0.1)' },
+            { primary: '#ffc107', secondary: 'rgba(255, 193, 7, 0.1)' },
+            { primary: '#6f42c1', secondary: 'rgba(111, 66, 193, 0.1)' }
+        ]
     },
 
     /**
-     * Updates or creates the chart with new data
-     * @param {Array} data - Array of noise data points
+     * 格式化日期时间
+     * @private
+     */
+    formatDateTime(datetime) {
+        const date = new Date(datetime);
+        return date.toLocaleString('en-US', {
+            month: 'numeric',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: true
+        });
+    },
+
+    /**
+     * 更新或创建图表
+     * @param {Array} data - 噪声数据数组
      */
     updateChart(data) {
         if (!data || data.length === 0) {
@@ -30,57 +52,49 @@ const chartModule = {
             return;
         }
 
-        // Destroy existing chart if present
         this.destroyChart();
 
-        // Process the data for multiple metrics
-        const chartData = {
-            labels: data.map(item => this.formatDateTime(item.datetime)),
-            datasets: [
-                {
-                    label: 'LAeq (dB)',
-                    data: data.map(item => item.laeq),
-                    borderColor: '#007bff',
-                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                    fill: true,
-                    tension: 0.1,
-                    pointRadius: 2,
-                    pointHoverRadius: 5,
-                    yAxisID: 'y'
-                },
-                {
-                    label: 'LA10 (dB)',
-                    data: data.map(item => item.la10),
-                    borderColor: '#28a745',
-                    borderDash: [5, 5],
-                    fill: false,
-                    tension: 0.1,
-                    pointRadius: 0,
-                    yAxisID: 'y'
-                },
-                {
-                    label: 'LA90 (dB)',
-                    data: data.map(item => item.la90),
-                    borderColor: '#dc3545',
-                    borderDash: [5, 5],
-                    fill: false,
-                    tension: 0.1,
-                    pointRadius: 0,
-                    yAxisID: 'y'
-                }
-            ]
-        };
+        const chartConfig = this.createChartConfig(data);
+        this.chart = new Chart(canvas.getContext('2d'), chartConfig);
+        this.addStatistics(data);
+    },
 
-        // Create new chart with simplified time handling
-        this.chart = new Chart(canvas.getContext('2d'), {
+    /**
+     * 创建图表配置
+     * @private
+     */
+    createChartConfig(data) {
+        const labels = data.map(item => this.formatDateTime(item.datetime));
+        const datasets = this.createDatasets(data);
+
+        // 计算合适的Y轴范围
+        const allValues = [];
+        data.forEach(item => {
+            if (item.monitors) {
+                item.monitors.forEach(monitor => {
+                    if (monitor.laeq) allValues.push(monitor.laeq);
+                });
+            } else if (item.laeq) {
+                allValues.push(item.laeq);
+            }
+        });
+
+        const minValue = Math.min(...allValues);
+        const maxValue = Math.max(...allValues);
+        const padding = (maxValue - minValue) * 0.1; // 添加10%的padding
+
+        return {
             type: 'line',
-            data: chartData,
+            data: {
+                labels,
+                datasets
+            },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 interaction: {
-                    intersect: false,
-                    mode: 'index'
+                    mode: 'index',
+                    intersect: false
                 },
                 scales: {
                     x: {
@@ -99,13 +113,11 @@ const chartModule = {
                             display: true,
                             text: 'Noise Level (dB)'
                         },
-                        min: function(ctx) {
-                            const values = data.map(item => Math.min(item.laeq, item.la90));
-                            return Math.floor(Math.min(...values) / 10) * 10;
-                        },
-                        max: function(ctx) {
-                            const values = data.map(item => Math.max(item.laeq, item.la10));
-                            return Math.ceil(Math.max(...values) / 10) * 10;
+                        // 设置合适的刻度范围
+                        min: Math.max(0, minValue - padding),
+                        max: maxValue + padding,
+                        ticks: {
+                            stepSize: 5 // 设置刻度间隔
                         }
                     }
                 },
@@ -114,59 +126,204 @@ const chartModule = {
                         position: 'top',
                         labels: {
                             usePointStyle: true,
-                            pointStyle: 'circle'
+                            pointStyle: 'circle',
+                            generateLabels: (chart) => this.customLegendLabels(chart)
                         }
                     },
                     tooltip: {
                         mode: 'index',
                         intersect: false,
                         callbacks: {
-                            label: function(context) {
-                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)} dB`;
+                            label: (context) => {
+                                const value = context.parsed.y?.toFixed(1);
+                                if (!value) return null;
+                                return `${context.dataset.label}: ${value} dB`;
                             }
                         }
                     }
                 }
             }
-        });
-
-        // Add statistics
-        this.addStatistics(data);
+        };
     },
 
     /**
-     * Adds statistics to the chart
-     * @param {Array} data - Array of noise data points
+     * 创建数据集
+     * @private
      */
-    addStatistics(data) {
-        const stats = {
-            laeq: {
-                min: Math.min(...data.map(item => item.laeq)).toFixed(1),
-                max: Math.max(...data.map(item => item.laeq)).toFixed(1),
-                avg: (data.reduce((sum, item) => sum + item.laeq, 0) / data.length).toFixed(1)
-            },
-            la10: {
-                avg: (data.reduce((sum, item) => sum + item.la10, 0) / data.length).toFixed(1)
-            },
-            la90: {
-                avg: (data.reduce((sum, item) => sum + item.la90, 0) / data.length).toFixed(1)
-            }
-        };
+    createDatasets(data) {
+        // 检查是否是多监控器数据
+        if (data[0]?.monitors) {
+            const monitorDatasets = new Map();
 
-        const statsDiv = document.createElement('div');
+            // 收集所有监控器的数据
+            data.forEach(item => {
+                item.monitors.forEach(monitor => {
+                    if (!monitorDatasets.has(monitor.monitorId)) {
+                        monitorDatasets.set(monitor.monitorId, {
+                            data: Array(data.length).fill(null),
+                            displayName: monitor.displayName || `Monitor ${monitor.monitorIndex + 1}`
+                        });
+                    }
+                    const index = data.indexOf(item);
+                    monitorDatasets.get(monitor.monitorId).data[index] = monitor.laeq;
+                });
+            });
+
+            // 转换为数据集数组
+            return Array.from(monitorDatasets.entries()).map(([monitorId, monitorData], index) => ({
+                label: `${monitorData.displayName} LAeq (dB)`,
+                data: monitorData.data,
+                borderColor: this.colors.multiple[index].primary,
+                backgroundColor: this.colors.multiple[index].secondary,
+                fill: false,
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 5
+            }));
+        }
+
+        // 单个监控器数据处理保持不变
+        return this.createDefaultDatasets(data);
+    },
+    
+    /**
+     * 创建默认数据集（单个监控器）
+     * @private
+     */
+    createDefaultDatasets(data) {
+        return [
+            {
+                label: 'LAeq (dB)',
+                data: data.map(item => item.laeq),
+                borderColor: this.colors.single.laeq,
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                fill: true,
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 5
+            },
+            {
+                label: 'LA10 (dB)',
+                data: data.map(item => item.la10),
+                borderColor: this.colors.single.la10,
+                borderDash: [5, 5],
+                fill: false,
+                tension: 0.1,
+                pointRadius: 0
+            },
+            {
+                label: 'LA90 (dB)',
+                data: data.map(item => item.la90),
+                borderColor: this.colors.single.la90,
+                borderDash: [5, 5],
+                fill: false,
+                tension: 0.1,
+                pointRadius: 0
+            }
+        ];
+    },
+
+    /**
+     * 创建连接数据集
+     * @private
+     */
+    createConcatenatedDatasets(data) {
+        return [
+            {
+                label: 'Combined LAeq (dB)',
+                data: data.map(item => item.laeq),
+                borderColor: this.colors.multiple[0].primary,
+                backgroundColor: this.colors.multiple[0].secondary,
+                fill: true,
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 5
+            }
+        ];
+    },
+
+
+    /**
+     * 创建工具提示回调
+     * @private
+     */
+    createTooltipCallback(fusionType) {
+        return function(context) {
+            const value = context.parsed.y.toFixed(1);
+            let label = `${context.dataset.label}: ${value} dB`;
+            
+            if (fusionType === 'weighted') {
+                label += ' (Weighted Average)';
+            } else if (fusionType === 'concatenated') {
+                label += ' (Combined)';
+            }
+
+            return label;
+        };
+    },
+
+    /**
+     * 自定义图例标签
+     * @private
+     */
+    customLegendLabels(chart) {
+        const datasets = chart.data.datasets;
+        return datasets.map((dataset, i) => ({
+            text: dataset.label,
+            fillStyle: dataset.backgroundColor,
+            strokeStyle: dataset.borderColor,
+            lineWidth: 2,
+            hidden: !chart.isDatasetVisible(i),
+            index: i
+        }));
+    },
+
+    /**
+     * 添加统计信息
+     * @param {Array} data - 数据数组
+     * @param {string} fusionType - 融合类型
+     */
+    addStatistics(data, fusionType) {
+        const statsDiv = document.getElementById('chartStats') || document.createElement('div');
+        statsDiv.id = 'chartStats';
         statsDiv.className = 'chart-statistics';
+
+        const stats = this.calculateStatistics(data);
+        const fusionLabel = fusionType !== 'none' ? ` (${fusionType})` : '';
+
         statsDiv.innerHTML = `
-            <div class="stat-item">
-                <span class="stat-label">LAeq:</span>
-                <span class="stat-value">Min: ${stats.laeq.min} dB / Avg: ${stats.laeq.avg} dB / Max: ${stats.laeq.max} dB</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">LA10 Avg:</span>
-                <span class="stat-value">${stats.la10.avg} dB</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">LA90 Avg:</span>
-                <span class="stat-value">${stats.la90.avg} dB</span>
+            <h3>Statistics${fusionLabel}</h3>
+            <div class="stats-content">
+                <div class="stat-group">
+                    <h4>LAeq</h4>
+                    <div class="stat-items">
+                        <div class="stat-item">
+                            <span class="stat-label">Minimum:</span>
+                            <span class="stat-value">${stats.laeq.min.toFixed(1)} dB</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Average:</span>
+                            <span class="stat-value">${stats.laeq.avg.toFixed(1)} dB</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Maximum:</span>
+                            <span class="stat-value">${stats.laeq.max.toFixed(1)} dB</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="stat-group">
+                    <h4>Percentile Levels</h4>
+                    <div class="stat-items">
+                        <div class="stat-item">
+                            <span class="stat-label">LA10 Average:</span>
+                            <span class="stat-value">${stats.la10.avg.toFixed(1)} dB</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">LA90 Average:</span>
+                            <span class="stat-value">${stats.la90.avg.toFixed(1)} dB</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         `;
 
@@ -179,7 +336,34 @@ const chartModule = {
     },
 
     /**
-     * Destroys the current chart instance
+     * 计算统计数据
+     * @private
+     */
+    calculateStatistics(data) {
+        const getValue = (arr, key) => arr.map(item => item[key]).filter(v => v != null);
+        const average = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+        const laeqValues = getValue(data, 'laeq');
+        const la10Values = getValue(data, 'la10');
+        const la90Values = getValue(data, 'la90');
+
+        return {
+            laeq: {
+                min: Math.min(...laeqValues),
+                max: Math.max(...laeqValues),
+                avg: average(laeqValues)
+            },
+            la10: {
+                avg: average(la10Values)
+            },
+            la90: {
+                avg: average(la90Values)
+            }
+        };
+    },
+
+    /**
+     * 销毁当前图表实例
      */
     destroyChart() {
         if (this.chart) {

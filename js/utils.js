@@ -1,14 +1,12 @@
-// js/utils.js
-
 /**
  * Utility functions module
  * Contains helper functions used throughout the application
  */
 const utils = {
     /**
-     * Formats a date for API requests
-     * @param {Date|string} date - Date to format
-     * @returns {string} Formatted date string in ISO format
+     * 格式化日期为API请求格式
+     * @param {Date|string} date - 要格式化的日期
+     * @returns {string} ISO格式的日期字符串
      */
     formatDate(date) {
         if (typeof date === 'string') {
@@ -18,9 +16,9 @@ const utils = {
     },
 
     /**
-     * Formats a date for datetime-local input
-     * @param {Date} date - Date to format
-     * @returns {string} Formatted date string for datetime-local input
+     * 格式化日期为datetime-local输入格式
+     * @param {Date} date - 要格式化的日期
+     * @returns {string} 格式化的日期字符串
      */
     formatDateTimeLocal(date) {
         return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -29,10 +27,9 @@ const utils = {
     },
 
     /**
-     * Gets an element by ID with error handling
-     * @param {string} id - Element ID
-     * @returns {HTMLElement} The found element
-     * @throws {Error} If element is not found
+     * 通过ID获取元素，带错误处理
+     * @param {string} id - 元素ID
+     * @returns {HTMLElement} 找到的元素
      */
     getElement(id) {
         const element = document.getElementById(id);
@@ -44,36 +41,32 @@ const utils = {
     },
 
     /**
-     * Shows an error message to the user
-     * @param {string} message - Error message to display
-     * @param {number} [duration=5000] - Duration in ms to show the error
+     * 显示错误消息
+     * @param {string} message - 错误消息
+     * @param {number} [duration=5000] - 显示持续时间（毫秒）
      */
     showError(message, duration = 5000) {
         console.error('Error:', message);
         
-        // Remove existing error if present
         this.removeExistingError();
 
-        // Create and show new error
         const error = document.createElement('div');
-        error.className = 'error-message';
+        error.className = 'error-message fade-in';
         error.innerHTML = `
             <div class="error-content">
+                <span class="error-icon">⚠</span>
                 <span class="error-text">${message}</span>
-                <button class="error-close">&times;</button>
+                <button class="error-close" title="Close">&times;</button>
             </div>
         `;
 
-        // Add to document
         document.body.appendChild(error);
 
-        // Add close button handler
         const closeButton = error.querySelector('.error-close');
         if (closeButton) {
             closeButton.addEventListener('click', () => this.removeExistingError());
         }
 
-        // Auto remove after duration if specified
         if (duration > 0) {
             setTimeout(() => {
                 if (document.body.contains(error)) {
@@ -85,7 +78,7 @@ const utils = {
     },
 
     /**
-     * Removes existing error message
+     * 移除现有的错误消息
      */
     removeExistingError() {
         const existingError = document.querySelector('.error-message');
@@ -95,9 +88,9 @@ const utils = {
     },
 
     /**
-     * Shows or hides the loading indicator
-     * @param {boolean} show - Whether to show or hide the loading indicator
-     * @param {string} [message='Loading...'] - Custom loading message
+     * 显示或隐藏加载指示器
+     * @param {boolean} show - 是否显示
+     * @param {string} [message='Loading...'] - 加载消息
      */
     showLoading(show, message = 'Loading...') {
         let loader = document.getElementById('loadingIndicator');
@@ -111,17 +104,19 @@ const utils = {
 
         if (show) {
             loader.innerHTML = `
-                <div class="loading-spinner"></div>
-                <div class="loading-message">${message}</div>
+                <div class="loading-content">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-message">${message}</div>
+                </div>
             `;
-            loader.style.display = 'flex';
+            loader.classList.add('show');
         } else {
-            loader.style.display = 'none';
+            loader.classList.remove('show');
         }
     },
 
     /**
-     * Sets default dates for the date inputs
+     * 设置默认日期
      */
     setDefaultDates() {
         try {
@@ -134,6 +129,14 @@ const utils = {
             
             startTime.value = this.formatDateTimeLocal(yesterday);
             endTime.value = this.formatDateTimeLocal(now);
+
+            // 设置最大值为当前时间
+            endTime.max = this.formatDateTimeLocal(now);
+
+            // 设置最小值为7天前
+            const sevenDaysAgo = new Date(now);
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            startTime.min = this.formatDateTimeLocal(sevenDaysAgo);
         } catch (error) {
             console.error('Error setting default dates:', error);
             this.showError('Failed to set default dates');
@@ -141,30 +144,26 @@ const utils = {
     },
 
     /**
-     * Validates time range
-     * @param {Date} startTime - Start time
-     * @param {Date} endTime - End time
-     * @param {number} [maxDays=7] - Maximum allowed days between dates
-     * @returns {boolean} Whether the time range is valid
+     * 验证时间范围
+     * @param {Date} startTime - 开始时间
+     * @param {Date} endTime - 结束时间
+     * @param {number} [maxDays=7] - 最大天数
+     * @returns {boolean} 是否有效
      */
     validateTimeRange(startTime, endTime, maxDays = 7) {
-        // Convert to Date objects if strings
         const start = new Date(startTime);
         const end = new Date(endTime);
 
-        // Check for invalid dates
         if (isNaN(start.getTime()) || isNaN(end.getTime())) {
             this.showError('Invalid date format');
             return false;
         }
 
-        // Check order
         if (start >= end) {
             this.showError('Start time must be before end time');
             return false;
         }
 
-        // Check range
         const timeDiff = end - start;
         const dayDiff = timeDiff / (1000 * 60 * 60 * 24);
         
@@ -173,14 +172,27 @@ const utils = {
             return false;
         }
 
+        const now = new Date();
+        if (end > now) {
+            this.showError('End time cannot be in the future');
+            return false;
+        }
+
+        const sevenDaysAgo = new Date(now);
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        if (start < sevenDaysAgo) {
+            this.showError('Start time cannot be more than 7 days ago');
+            return false;
+        }
+
         return true;
     },
 
     /**
-     * Debounces a function
-     * @param {Function} func - Function to debounce
-     * @param {number} wait - Wait time in milliseconds
-     * @returns {Function} Debounced function
+     * 防抖函数
+     * @param {Function} func - 要防抖的函数
+     * @param {number} wait - 等待时间（毫秒）
+     * @returns {Function} 防抖处理后的函数
      */
     debounce(func, wait) {
         let timeout;
@@ -195,23 +207,82 @@ const utils = {
     },
 
     /**
-     * Formats a number with specified decimal places
-     * @param {number} value - Number to format
-     * @param {number} [decimals=1] - Number of decimal places
-     * @returns {string} Formatted number
+     * 格式化数字
+     * @param {number} value - 要格式化的数字
+     * @param {number} [decimals=1] - 小数位数
+     * @returns {string} 格式化后的数字
      */
     formatNumber(value, decimals = 1) {
+        if (!this.isValidNumber(value)) return '0';
         return Number(value).toFixed(decimals);
     },
 
     /**
-     * Checks if a value is a valid number
-     * @param {any} value - Value to check
-     * @returns {boolean} Whether the value is a valid number
+     * 检查是否为有效数字
+     * @param {any} value - 要检查的值
+     * @returns {boolean} 是否为有效数字
      */
     isValidNumber(value) {
         const num = parseFloat(value);
         return !isNaN(num) && isFinite(num);
+    },
+
+    /**
+     * 生成唯一ID
+     * @returns {string} 唯一ID
+     */
+    generateId() {
+        return 'id_' + Math.random().toString(36).substr(2, 9);
+    },
+
+    /**
+     * 格式化持续时间
+     * @param {number} minutes - 分钟数
+     * @returns {string} 格式化的持续时间
+     */
+    formatDuration(minutes) {
+        if (minutes < 60) {
+            return `${minutes} minutes`;
+        }
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        return `${hours} hour${hours > 1 ? 's' : ''}${remainingMinutes > 0 ? ` ${remainingMinutes} min` : ''}`;
+    },
+
+    /**
+     * 显示提示消息
+     * @param {string} message - 消息内容
+     * @param {string} [type='info'] - 消息类型（'info', 'success', 'warning'）
+     * @param {number} [duration=3000] - 显示持续时间
+     */
+    showMessage(message, type = 'info', duration = 3000) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message-toast ${type} fade-in`;
+        messageDiv.textContent = message;
+
+        document.body.appendChild(messageDiv);
+
+        setTimeout(() => {
+            messageDiv.classList.add('fade-out');
+            setTimeout(() => messageDiv.remove(), 500);
+        }, duration);
+    },
+
+    /**
+     * 深度克隆对象
+     * @param {Object} obj - 要克隆的对象
+     * @returns {Object} 克隆后的对象
+     */
+    deepClone(obj) {
+        if (obj === null || typeof obj !== 'object') return obj;
+        if (obj instanceof Date) return new Date(obj);
+        if (obj instanceof Array) return obj.map(item => this.deepClone(item));
+        if (obj instanceof Object) {
+            return Object.fromEntries(
+                Object.entries(obj).map(([key, value]) => [key, this.deepClone(value)])
+            );
+        }
+        return obj;
     }
 };
 

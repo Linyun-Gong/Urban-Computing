@@ -1,4 +1,4 @@
-// db/server.js
+// server.js
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -7,9 +7,13 @@ import monitorDAO from './monitorDAO.js';
 
 const app = express();
 
-
 // 中间件配置
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:5500', 'http://127.0.0.1:5500'],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -97,20 +101,75 @@ app.post('/api/data/:monitorId', async (req, res) => {
         const { monitorId } = req.params;
         const { startTime, endTime, realtime } = req.body;
         
-        console.log('Data request:', { monitorId, startTime, endTime, realtime });
+        console.log('Data request:', {
+            monitorId,
+            startTime,
+            endTime,
+            realtime
+        });
 
         // 验证参数
         if (!startTime || !endTime) {
-            return res.status(400).json({ 
-                error: 'Missing required parameters: startTime and endTime' 
+            return res.status(400).json({
+                error: 'Missing required parameters: startTime and endTime'
             });
         }
 
         // 验证时间范围
         const sevenDaysAgo = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
         if (startTime < sevenDaysAgo) {
-            return res.status(400).json({ 
-                error: 'Data is only available for the last 7 days' 
+            return res.status(400).json({
+                error: 'Data is only available for the last 7 days'
+            });
+        }
+
+        // 获取所有监控器的信息
+        const monitors = await monitorDAO.getMonitors();
+
+        // 处理多监控器数据请求
+        if (monitorId.includes(',')) {
+            const monitorIds = monitorId.split(',');
+            
+            // 限制最多选择5个监控器
+            if (monitorIds.length > 5) {
+                return res.status(400).json({
+                    error: 'Maximum 5 monitors can be selected'
+                });
+            }
+
+            // 获取选中监控器的完整信息
+            const selectedMonitors = monitors.filter(m => 
+                monitorIds.includes(m.monitor_id)
+            );
+
+            const dataPromises = selectedMonitors.map(monitor => 
+                monitorDAO.getData(monitor.monitor_id, startTime, endTime, realtime === 'true')
+            );
+
+            const allData = await Promise.all(dataPromises);
+            const formattedData = allData.map((data, index) => 
+                data.map(item => ({
+                    datetime: new Date(item.timestamp).toISOString().replace('T', ' ').split('.')[0],
+                    laeq: Number(item.laeq),
+                    la10: Number(item.la10),
+                    la90: Number(item.la90),
+                    lafmax: Number(item.lafmax),
+                    lceq: Number(item.lceq),
+                    lcfmax: Number(item.lcfmax),
+                    lc10: Number(item.lc10),
+                    lc90: Number(item.lc90)
+                }))
+            );
+
+            const resultData = monitorDAO.concatenateData(formattedData, selectedMonitors);
+            return res.json(resultData);
+        }
+
+        // 单个监控器数据处理
+        const monitor = monitors.find(m => m.monitor_id === monitorId);
+        if (!monitor) {
+            return res.status(404).json({
+                error: 'Monitor not found'
             });
         }
 
@@ -122,12 +181,11 @@ app.post('/api/data/:monitorId', async (req, res) => {
         );
 
         if (!data || data.length === 0) {
-            return res.status(404).json({ 
-                error: 'No data available for the selected time range' 
+            return res.status(404).json({
+                error: 'No data available for the selected time range'
             });
         }
 
-        // 转换数据格式
         const formattedData = data.map(item => ({
             datetime: new Date(item.timestamp).toISOString().replace('T', ' ').split('.')[0],
             laeq: Number(item.laeq),
@@ -137,7 +195,9 @@ app.post('/api/data/:monitorId', async (req, res) => {
             lceq: Number(item.lceq),
             lcfmax: Number(item.lcfmax),
             lc10: Number(item.lc10),
-            lc90: Number(item.lc90)
+            lc90: Number(item.lc90),
+            monitorId: monitor.monitor_id,
+            displayName: monitor.display_name
         }));
 
         res.json(formattedData);
@@ -180,8 +240,8 @@ app.post('/api/data/:monitorId/save', async (req, res) => {
             });
 
             const result = await monitorDAO.saveData(monitorId, data);
-            res.json({ 
-                success: true, 
+            res.json({
+                success: true,
                 message: 'Data saved successfully',
                 count: data.length,
                 result
@@ -190,15 +250,14 @@ app.post('/api/data/:monitorId/save', async (req, res) => {
         } catch (error) {
             retryCount++;
             console.error(`Save attempt ${retryCount} failed:`, error);
-            
+
             if (retryCount === maxRetries) {
-                return res.status(500).json({ 
+                return res.status(500).json({
                     error: error.message,
                     attempts: retryCount
                 });
             }
-            
-            // 等待后重试
+
             await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
         }
     }
@@ -209,11 +268,15 @@ app.post('/api/data/:monitorId/latest', async (req, res) => {
     try {
         const { monitorId } = req.params;
         const data = await monitorDAO.getLatestData(monitorId);
-        
+
         if (!data) {
             return res.status(404).json({ error: 'No data available' });
         }
-        
+
+        // 获取监控器信息
+        const monitors = await monitorDAO.getMonitors();
+        const monitor = monitors.find(m => m.monitor_id === monitorId);
+
         const formattedData = {
             datetime: new Date(data.timestamp).toISOString().replace('T', ' ').split('.')[0],
             laeq: Number(data.laeq),
@@ -223,7 +286,9 @@ app.post('/api/data/:monitorId/latest', async (req, res) => {
             lceq: Number(data.lceq),
             lcfmax: Number(data.lcfmax),
             lc10: Number(data.lc10),
-            lc90: Number(data.lc90)
+            lc90: Number(data.lc90),
+            monitorId: monitor?.monitor_id,
+            displayName: monitor?.display_name
         };
 
         res.json(formattedData);
@@ -249,10 +314,10 @@ app.post('/api/stats/:monitorId', async (req, res) => {
 app.post('/api/maintenance/cleanup', async (req, res) => {
     try {
         const results = await monitorDAO.cleanOldData();
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             message: 'Cleanup completed successfully',
-            results 
+            results
         });
     } catch (error) {
         console.error('Error during cleanup:', error);
@@ -298,15 +363,15 @@ async function startServer() {
             try {
                 console.log('Starting periodic historical data sync...');
                 const monitors = await monitorDAO.getMonitors();
-        
+
                 for (const monitor of monitors) {
                     const now = Math.floor(Date.now() / 1000);
                     const lastSyncTime = new Date(monitor.last_sync_time || 0).getTime() / 1000;
                     const startTime = lastSyncTime || now - (7 * 24 * 60 * 60);
-        
+
                     console.log(`Syncing data for monitor: ${monitor.monitor_id}`);
                     const data = await monitorDAO.fetchDataFromProxy(monitor.monitor_id, startTime, now);
-        
+
                     if (data && data.length > 0) {
                         await monitorDAO.saveData(monitor.monitor_id, data);
                         await monitorDAO.updateMonitorSyncStatus(monitor.monitor_id, 'synchronized');

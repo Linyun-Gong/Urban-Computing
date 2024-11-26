@@ -4,47 +4,56 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Noise Monitoring Dashboard</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <link href="css/styles.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>Noise Monitoring Dashboard</h1>
-        
+        <h1>Dublin Noise Monitoring Dashboard</h1>
+
         <div class="controls">
+            <!-- 监控器选择 -->
             <div class="control-group">
-                <label for="monitor">Select Monitor:</label>
-                <select id="monitor" name="monitor">
-                    <option value="">Select a monitor...</option>
+                <label for="monitor">Select Monitors (Max 5):</label>
+                <select id="monitor" multiple size="5">
+                    <!-- 动态填充监控器选项 -->
                 </select>
+                <div class="selection-hint">Hold Ctrl+C to select multiple monitors</div>
             </div>
 
+            <!-- 数据类型选择 -->
             <div class="control-group">
                 <label for="dataType">Data Type:</label>
-                <select id="dataType" name="dataType">
+                <select id="dataType">
                     <option value="historical">Historical Data</option>
                     <option value="realtime">Real-time Data</option>
                 </select>
             </div>
 
+            <!-- 时间范围控制 -->
             <div class="control-group">
                 <label for="startTime">Start Time:</label>
-                <input type="datetime-local" id="startTime" name="startTime">
+                <input type="datetime-local" id="startTime">
             </div>
 
             <div class="control-group" id="endTimeGroup">
                 <label for="endTime">End Time:</label>
-                <input type="datetime-local" id="endTime" name="endTime">
+                <input type="datetime-local" id="endTime">
             </div>
         </div>
 
+        <!-- 操作按钮 -->
         <div class="button-group">
             <button id="fetchData" class="primary-button">Show Data</button>
         </div>
 
-        <div id="loadingIndicator" class="loading" style="display: none;">
-            Loading data...
+        <!-- 加载指示器 -->
+        <div id="loadingIndicator" class="loading-indicator" style="display: none;">
+            <div class="loading-spinner"></div>
+            <div class="loading-message">Loading data...</div>
         </div>
 
+        <!-- 连接状态 -->
         <div id="connectionStatus" class="connection-status">
             <div class="status-indicator">
                 <span class="status-dot"></span>
@@ -52,39 +61,47 @@
             </div>
         </div>
 
+        <!-- 数据显示区域 -->
         <div class="data-container">
+            <!-- 图表包装器 -->
             <div class="chart-wrapper">
                 <canvas id="chart"></canvas>
                 <div id="chartTooltip" class="chart-tooltip" style="display: none;"></div>
             </div>
 
+            <!-- 数据信息显示 -->
             <div id="dataInfo" class="data-info" style="display: none;">
-                <div class="info-header">
-                    <h3>Data Information</h3>
-                    <span class="mode-badge"></span>
-                </div>
-                <div class="info-content"></div>
+                <!-- 动态填充数据信息 -->
             </div>
 
+            <!-- 图表统计信息 -->
             <div id="chartStats" class="chart-statistics" style="display: none;">
                 <h3>Statistics</h3>
                 <div class="stats-content">
-                    <div class="stat-group laeq">
-                        <h4>LAeq</h4>
-                        <div class="stat-items"></div>
-                    </div>
-                    <div class="stat-group la">
-                        <h4>LA10/LA90</h4>
-                        <div class="stat-items"></div>
-                    </div>
+                    <!-- 动态填充统计信息 -->
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script type="module" src="js/app.js"></script>
-    <script type="module" src="js/index.js"></script>
+    <!-- 错误消息容器 -->
+    <div id="errorContainer"></div>
+
+    <!-- JavaScript 模块 -->
+    <script type="module">
+        import NoiseMonitoringApp from './js/app.js';
+        
+        // 初始化应用
+        document.addEventListener('DOMContentLoaded', () => {
+            window.app = new NoiseMonitoringApp();
+        });
+
+        // 在页面关闭时清理资源
+        window.addEventListener('beforeunload', () => {
+            if (window.app) {
+                window.app.cleanup();
+            }
+        });
+    </script>
 </body>
 </html>

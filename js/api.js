@@ -1,4 +1,4 @@
-// js/api.js
+// api.js
 class Api {
     constructor() {
         this.API_CONFIG = {
@@ -11,6 +11,9 @@ class Api {
         };
     }
 
+    /**
+     * 检查服务连接状态
+     */
     async checkConnections() {
         console.log('Checking service connections...'); 
         const results = {
@@ -66,6 +69,9 @@ class Api {
         return results;
     }
 
+    /**
+     * 获取监控器列表
+     */
     async getMonitors() {
         try {
             // 首先尝试从数据库获取
@@ -121,74 +127,40 @@ class Api {
         }
     }
 
-    async getData(monitorId, startTime, endTime) {
+    /**
+     * 从数据库获取数据
+     */
+    async fetchFromDatabase(monitorIds, startTime, endTime) {
+        const monitorIdsString = Array.isArray(monitorIds) ? monitorIds.join(',') : monitorIds;
         try {
-            console.log('Fetching data for monitor:', monitorId);
-            const isRealtime = document.getElementById('dataType').value === 'realtime';
-    
-            const startUnix = Math.round(startTime.getTime() / 1000);
-            const endUnix = Math.round(endTime.getTime() / 1000);
-    
-            console.log('Time range:', {
-                start: startTime.toISOString(),
-                end: endTime.toISOString(),
-                startUnix,
-                endUnix
+            const response = await fetch(`${this.API_CONFIG.DB_URL}/api/data/${monitorIdsString}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    startTime,
+                    endTime,
+                    realtime: false
+                })
             });
-    
-            let data;
-            let source = 'unknown';
-    
-            try {
-                if (!isRealtime) {
-                    // 先从数据库获取数据
-                    data = await this.fetchFromDatabase(monitorId, startUnix, endUnix);
-                    source = 'database';
-                }
-            } catch (dbError) {
-                console.log('Database fetch failed, trying proxy:', dbError);
+
+            if (!response.ok) {
+                throw new Error(`Database request failed: ${response.status}`);
             }
-    
-            if (!data) {
-                // 如果数据库没有数据或是实时模式，从代理获取
-                data = await this.fetchFromProxy(monitorId, startUnix, endUnix);
-                source = 'proxy';
-                
-                // 如果从代理获取成功，异步保存到数据库
-                if (data && data.length > 0) {
-                    this.syncDataToDatabase(monitorId, data).catch(error => {
-                        console.warn('Background sync to database failed:', error);
-                    });
-                }
-            }
-    
-            if (!data || data.length === 0) {
-                throw new Error(`No data available for the selected time range (source: ${source})`);
-            }
-    
-            console.log(`Data retrieved from ${source}:`, {
-                length: data.length,
-                sample: data[0]
-            });
-    
-            return this.standardizeData(data);
+
+            return await response.json();
         } catch (error) {
-            console.error('Error in getData:', error);
+            console.error('Database fetch failed:', error);
             throw error;
         }
     }
 
-    async fetchFromProxy(monitorId, startUnix, endUnix) {
+    /**
+     * 从代理服务器获取数据
+     */
+    async fetchFromProxy(monitorId, startTime, endTime) {
         try {
-            const convertedMonitorId = monitorId.replace(/_/g, '.');
-    
-            console.log('Fetching from proxy:', {
-                originalId: monitorId,
-                convertedId: convertedMonitorId,
-                startUnix,
-                endUnix
-            });
-    
             const response = await fetch(`${this.API_CONFIG.PROXY_URL}/api/data`, {
                 method: 'POST',
                 headers: {
@@ -197,139 +169,107 @@ class Api {
                 body: new URLSearchParams({
                     username: this.CREDENTIALS.username,
                     password: this.CREDENTIALS.password,
-                    monitor: convertedMonitorId,
-                    start: startUnix.toString(),
-                    end: endUnix.toString()
+                    monitor: monitorId.replace(/_/g, '.'),
+                    start: startTime.toString(),
+                    end: endTime.toString()
                 })
             });
-    
+
             if (!response.ok) {
                 throw new Error(`Proxy request failed: ${response.status}`);
             }
-    
-            const data = await response.json();
-            console.log('Proxy response:', {
-                monitorId: convertedMonitorId,
-                dataLength: data?.length,
-                sampleData: data?.[0]
-            });
-    
-            return data;
+
+            return await response.json();
         } catch (error) {
             console.error('Proxy fetch failed:', error);
             throw error;
         }
     }
-
-    async fetchFromDatabase(monitorId, startUnix, endUnix) {
-        try {
-            console.log('Fetching from database:', {
-                monitorId,
-                startTime: new Date(startUnix * 1000).toISOString(),
-                endTime: new Date(endUnix * 1000).toISOString()
-            });
-    
-            const response = await fetch(`${this.API_CONFIG.DB_URL}/api/data/${monitorId}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    startTime: startUnix,
-                    endTime: endUnix,
-                    realtime: false
-                })
-            });
-    
-            if (!response.ok) {
-                throw new Error(`Database request failed: ${response.status}`);
-            }
-    
-            const data = await response.json();
-            console.log('Database response:', {
-                monitorId,
-                dataLength: data?.length,
-                sampleData: data?.[0]
-            });
-    
-            return data;
-        } catch (error) {
-            console.error('Database fetch failed:', error);
-            throw error;
+    /**
+         * 获取单个或多个监控器的数据
+         */
+    async getData(monitorIds, startTime, endTime) {
+        const monitors = Array.isArray(monitorIds) ? monitorIds : [monitorIds];
+        
+        if (monitors.length > 5) {
+            throw new Error('Maximum 5 monitors can be selected');
         }
-    }
-
-    async syncDataToDatabase(monitorId, data) {
-        if (!data || data.length === 0) return;
 
         try {
-            console.log('Syncing data to database:', {
-                monitorId,
-                dataLength: data.length,
-                sampleData: data[0]
-            });
+            const startUnix = Math.round(startTime.getTime() / 1000);
+            const endUnix = Math.round(endTime.getTime() / 1000);
 
-            const transformedData = data.map(item => {
-                const timestamp = item.datetime.replace(' ', 'T');
-                return {
-                    timestamp: new Date(timestamp).toISOString(),
-                    laeq: this.parseNumericValue(item.laeq),
-                    la10: this.parseNumericValue(item.la10),
-                    la90: this.parseNumericValue(item.la90),
-                    lafmax: this.parseNumericValue(item.lafmax),
-                    lceq: this.parseNumericValue(item.lceq),
-                    lcfmax: this.parseNumericValue(item.lcfmax),
-                    lc10: this.parseNumericValue(item.lc10),
-                    lc90: this.parseNumericValue(item.lc90)
-                };
-            });
+            // 获取监控器信息
+            const monitorList = await this.getMonitors();
+            const monitorInfo = new Map(
+                monitorList.map(m => [m.id, m])
+            );
 
-            const response = await fetch(`${this.API_CONFIG.DB_URL}/api/data/${monitorId}/save`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ data: transformedData })
-            });
-
-            if (response.ok) {
-                console.log(`Data successfully synced for monitor ${monitorId}`);
-                
-                // 更新 last_sync_time
-                await fetch(`${this.API_CONFIG.DB_URL}/api/monitors/${monitorId}/sync`, {
-                    method: 'POST'
+            // 从数据库获取数据
+            try {
+                const monitorIdsString = monitors.join(',');
+                const response = await fetch(`${this.API_CONFIG.DB_URL}/api/data/${monitorIdsString}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        startTime: startUnix,
+                        endTime: endUnix,
+                        realtime: false
+                    })
                 });
-            } else {
-                throw new Error(`Sync failed with status: ${response.status}`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.length > 0) {
+                        return data.map(item => ({
+                            ...item,
+                            monitors: item.monitors?.map(m => ({
+                                ...m,
+                                displayName: monitorInfo.get(m.monitorId)?.displayName
+                            }))
+                        }));
+                    }
+                }
+            } catch (dbError) {
+                console.log('Database fetch failed, trying proxy:', dbError);
             }
+
+            // 如果数据库获取失败，从代理获取
+            const dataPromises = monitors.map(monitorId =>
+                this.fetchFromProxy(monitorId, startUnix, endUnix)
+            );
+
+            const allData = await Promise.all(dataPromises);
+            
+            // 处理和标准化数据，包含displayName
+            return this.standardizeMultipleData(
+                allData.map((data, index) => ({
+                    data: data,
+                    monitorId: monitors[index],
+                    displayName: monitorInfo.get(monitors[index])?.displayName
+                }))
+            );
+
         } catch (error) {
-            console.error('Sync error:', error);
+            console.error('Error in getData:', error);
             throw error;
         }
     }
 
-    async checkDatabaseConnection() {
-        try {
-            const response = await fetch(`${this.API_CONFIG.DB_URL}/api/db/status`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('Database connection check failed:', error);
-            throw error;
-        }
-    }
-
+    /**
+     * 标准化数据
+     */
     standardizeData(data) {
         if (!Array.isArray(data)) {
             throw new Error('Invalid data format received');
         }
 
-        return data.map(item => {
-            const timestamp = item.datetime.replace(' ', 'T');
-            return {
-                datetime: new Date(timestamp).toISOString(),
+        // 处理单监控器数据
+        if (!data[0]?.monitors) {
+            return data.map(item => ({
+                datetime: this.formatDateTime(item.datetime || item.timestamp),
                 laeq: this.parseNumericValue(item.laeq),
                 la10: this.parseNumericValue(item.la10),
                 la90: this.parseNumericValue(item.la90),
@@ -338,10 +278,88 @@ class Api {
                 lcfmax: this.parseNumericValue(item.lcfmax),
                 lc10: this.parseNumericValue(item.lc10),
                 lc90: this.parseNumericValue(item.lc90)
-            };
-        });
+            }));
+        }
+
+        // 处理多监控器数据
+        return data;
     }
 
+    /**
+         * 标准化多个监控器的数据
+         */
+    standardizeMultipleData(data) {
+        if (!data || !Array.isArray(data)) {
+            throw new Error('Invalid data format received');
+        }
+
+        // 如果数据已经包含monitors数组，直接返回
+        if (data[0]?.monitors) {
+            return data;
+        }
+
+        // 获取所有时间点
+        const timeSet = new Set();
+        data.forEach(item => {
+            timeSet.add(this.formatDateTime(item.datetime || item.timestamp));
+        });
+
+        const times = Array.from(timeSet).sort();
+
+        // 为每个时间点整理数据
+        return times.map(time => ({
+            datetime: time,
+            monitors: data.map((point, index) => {
+                if (point.monitors) {
+                    return point.monitors.find(m => 
+                        this.formatDateTime(m.datetime || m.timestamp) === time
+                    );
+                }
+                return {
+                    laeq: this.parseNumericValue(point.laeq),
+                    monitorId: point.monitorId,
+                    displayName: point.displayName,
+                    monitorIndex: index
+                };
+            }).filter(Boolean)
+        }));
+    }
+
+    /**
+     * 同步数据到数据库
+     */
+    async syncDataToDatabase(monitors, allData) {
+        try {
+            const syncPromises = monitors.map((monitorId, index) =>
+                fetch(`${this.API_CONFIG.DB_URL}/api/data/${monitorId}/save`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ data: allData[index] })
+                })
+            );
+
+            await Promise.all(syncPromises);
+            console.log('Data synced successfully to database');
+        } catch (error) {
+            console.error('Error syncing data to database:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 辅助方法：格式化日期时间
+     */
+    formatDateTime(datetime) {
+        if (!datetime) return '';
+        const date = new Date(datetime.replace(' ', 'T'));
+        return date.toISOString().replace('T', ' ').split('.')[0];
+    }
+
+    /**
+     * 辅助方法：解析数值
+     */
     parseNumericValue(value) {
         if (value === null || value === undefined) return 0;
         const parsed = parseFloat(value);

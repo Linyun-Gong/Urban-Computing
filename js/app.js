@@ -8,10 +8,14 @@ import chartModule from './chart.js';
  * Handles the core application logic and state management
  */
 class NoiseMonitoringApp {
+    /**
+     * Constructor
+     * Initializes the application state and starts the application
+     */
     constructor() {
         this.updateInterval = null;
         this.isLoading = false;
-        this.currentMonitor = null;
+        this.selectedMonitors = [];
         this.isRealtime = false;
         this.initialize();
     }
@@ -32,7 +36,6 @@ class NoiseMonitoringApp {
                 throw new Error('Neither database nor proxy service is available');
             }
     
-            // 即使数据库不可用也继续加载monitors
             await this.loadMonitors();
             console.log('Monitors loaded successfully');
             
@@ -40,6 +43,7 @@ class NoiseMonitoringApp {
             utils.setDefaultDates();
             this.setupResizeHandler();
             this.checkUrlParams();
+
         } catch (error) {
             console.error('Initialization error:', error);
             utils.showError(error.message);
@@ -56,11 +60,9 @@ class NoiseMonitoringApp {
             const monitors = await api.getMonitors();
             const select = utils.getElement('monitor');
             
-            // Clear existing options
-            select.innerHTML = '<option value="">Select a monitor...</option>';
+            select.innerHTML = '';
             
             if (monitors && monitors.length > 0) {
-                // Add monitors
                 monitors.forEach(monitor => {
                     const option = document.createElement('option');
                     option.value = monitor.id;
@@ -75,7 +77,7 @@ class NoiseMonitoringApp {
             throw error;
         }
     }
-    
+
     /**
      * Sets up event listeners
      */
@@ -92,6 +94,7 @@ class NoiseMonitoringApp {
         startTimeInput.addEventListener('change', () => this.validateTimeInputs());
         endTimeInput.addEventListener('change', () => this.validateTimeInputs());
 
+        // 添加快捷键支持
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.ctrlKey) {
                 this.fetchAndDisplayData();
@@ -116,13 +119,13 @@ class NoiseMonitoringApp {
      * Handles changes in the data type selector
      */
     handleDataTypeChange() {
-        const isRealtime = utils.getElement('dataType').value === 'realtime';
+        const dataTypeSelect = utils.getElement('dataType');
         const endTimeGroup = utils.getElement('endTimeGroup');
-        this.isRealtime = isRealtime;
+        this.isRealtime = dataTypeSelect.value === 'realtime';
         
-        endTimeGroup.style.display = isRealtime ? 'none' : 'block';
+        endTimeGroup.style.display = this.isRealtime ? 'none' : 'block';
         
-        if (this.updateInterval) {
+        if (this.isRealtime && this.updateInterval) {
             clearInterval(this.updateInterval);
             this.updateInterval = null;
         }
@@ -134,8 +137,18 @@ class NoiseMonitoringApp {
      * Handles changes in monitor selection
      */
     handleMonitorChange() {
-        const monitorId = utils.getElement('monitor').value;
-        this.currentMonitor = monitorId;
+        const monitorSelect = utils.getElement('monitor');
+        const selectedOptions = Array.from(monitorSelect.selectedOptions);
+        
+        // 限制最多选择5个监控器
+        if (selectedOptions.length > 5) {
+            utils.showError('Maximum 5 monitors can be selected');
+            // 取消最后选择的选项
+            monitorSelect.options[monitorSelect.options.length - 1].selected = false;
+            return;
+        }
+
+        this.selectedMonitors = selectedOptions.map(option => option.value);
         
         if (chartModule.chart) {
             chartModule.destroyChart();
@@ -178,7 +191,7 @@ class NoiseMonitoringApp {
     }
 
     /**
-     * Fetches and displays noise monitoring data
+     * Fetches and displays data
      */
     async fetchAndDisplayData() {
         try {
@@ -186,20 +199,20 @@ class NoiseMonitoringApp {
             this.isLoading = true;
             utils.showLoading(true);
 
-            const monitor = utils.getElement('monitor').value;
-            if (!monitor) {
-                throw new Error('Please select a monitor');
+            if (this.selectedMonitors.length === 0) {
+                throw new Error('Please select at least one monitor');
             }
 
-            const dataType = utils.getElement('dataType').value;
             const startTime = new Date(utils.getElement('startTime').value);
-            const endTime = dataType === 'realtime' ? new Date() : new Date(utils.getElement('endTime').value);
+            const endTime = this.isRealtime ? 
+                new Date() : 
+                new Date(utils.getElement('endTime').value);
 
             console.log('Request parameters:', {
-                monitor,
+                monitors: this.selectedMonitors,
                 startTime: startTime.toISOString(),
                 endTime: endTime.toISOString(),
-                dataType
+                isRealtime: this.isRealtime
             });
 
             if (!this.validateTimeInputs()) {
@@ -211,23 +224,23 @@ class NoiseMonitoringApp {
                 this.updateInterval = null;
             }
 
-            await this.updateChartData(monitor, startTime, endTime);
-
-            if (dataType === 'realtime') {
-                this.updateInterval = setInterval(async () => {
-                    const newEndTime = new Date();
-                    await this.updateChartData(monitor, startTime, newEndTime);
-                }, 5 * 60 * 1000); // Update every 5 minutes
-            }
-
-            if (dataType === 'historical') {
-                this.updateInterval = setInterval(async () => {
-                    const newEndTime = new Date();
-                    const newStartTime = new Date(utils.getElement('startTime').value); // 使用原始开始时间
-                    await this.updateChartData(monitor, newStartTime, newEndTime);
-                }, 5 * 60 * 1000); // 每5分钟运行一次
-            }
+            const data = await api.getData(
+                this.selectedMonitors,
+                startTime,
+                endTime,
+                { fusionType: 'concatenated' }
+            );
             
+            if (!data || data.length === 0) {
+                throw new Error('No data available for the selected time range');
+            }
+
+            chartModule.updateChart(data);
+            this.updateDataInfo(startTime, endTime, data.length);
+
+            if (this.isRealtime) {
+                this.setupDataUpdateInterval();
+            }
 
             this.updateUrlParameters();
 
@@ -241,56 +254,81 @@ class NoiseMonitoringApp {
     }
 
     /**
-     * Updates the chart with new data
+     * Sets up the data update interval
      */
-    async updateChartData(monitor, startTime, endTime) {
-        try {
-            console.log('Updating chart data...');
-            const data = await api.getData(monitor, startTime, endTime);
-    
-            if (!data || data.length === 0) {
-                throw new Error('No data available for the selected time range');
+    setupDataUpdateInterval() {
+        this.updateInterval = setInterval(async () => {
+            try {
+                const newEndTime = new Date();
+                const newStartTime = this.isRealtime ?
+                    new Date(newEndTime - (60 * 60 * 1000)) : // 最近一小时
+                    new Date(utils.getElement('startTime').value);
+                
+                const data = await api.getData(
+                    this.selectedMonitors,
+                    newStartTime,
+                    newEndTime,
+                    { fusionType: 'concatenated' }
+                );
+                
+                if (data && data.length > 0) {
+                    chartModule.updateChart(data);
+                    this.updateDataInfo(newStartTime, newEndTime, data.length);
+                }
+            } catch (error) {
+                console.error('Error in interval update:', error);
+                clearInterval(this.updateInterval);
+                this.updateInterval = null;
+                utils.showError('Real-time update failed: ' + error.message);
             }
-    
-            console.log('Received data points:', data.length);
-            chartModule.updateChart(data);
-            this.updateDataInfo(startTime, endTime, data.length);
-    
-        } catch (error) {
-            console.error('Error in updateChartData:', error);
-            throw error;
-        }
+        }, 5 * 60 * 1000); // 每5分钟更新一次
     }
 
     /**
      * Updates the data information display
      */
     updateDataInfo(startTime, endTime, dataPoints) {
-        const infoDiv = document.getElementById('dataInfo') || document.createElement('div');
-        infoDiv.id = 'dataInfo';
-        infoDiv.className = 'data-info';
-        infoDiv.innerHTML = `
+        const dataInfo = utils.getElement('dataInfo');
+        
+        dataInfo.style.display = 'block';
+        dataInfo.innerHTML = `
+            <div class="info-header">
+                <h3>Data Overview</h3>
+                <span class="mode-badge ${this.isRealtime ? 'realtime' : 'historical'}">
+                    ${this.isRealtime ? 'Real-time' : 'Historical'} Mode
+                </span>
+            </div>
             <div class="info-content">
-                <div>Time Range: ${startTime.toLocaleString()} - ${endTime.toLocaleString()}</div>
-                <div>Data Points: ${dataPoints}</div>
-                <div>Update Mode: ${this.isRealtime ? 'Real-time' : 'Historical'}</div>
+                <div>
+                    <strong>Time Range:</strong>
+                    <div>${startTime.toLocaleString()} - ${endTime.toLocaleString()}</div>
+                </div>
+                <div>
+                    <strong>Data Points:</strong>
+                    <div>${dataPoints}</div>
+                </div>
+                <div>
+                    <strong>Monitors:</strong>
+                    <div>${this.selectedMonitors.length} selected</div>
+                </div>
+                ${this.isRealtime ? `
+                    <div>
+                        <strong>Update Interval:</strong>
+                        <div>Every 5 minutes</div>
+                    </div>
+                ` : ''}
             </div>
         `;
-
-        const chartContainer = utils.getElement('chart').parentElement;
-        if (!document.getElementById('dataInfo')) {
-            chartContainer.insertBefore(infoDiv, chartContainer.firstChild);
-        }
     }
 
     /**
      * Updates URL parameters based on current selection
      */
     updateUrlParameters() {
-        const params = new URLSearchParams(window.location.search);
+        const params = new URLSearchParams();
         
-        if (this.currentMonitor) {
-            params.set('monitor', this.currentMonitor);
+        if (this.selectedMonitors.length > 0) {
+            params.set('monitors', this.selectedMonitors.join(','));
         }
         
         params.set('type', this.isRealtime ? 'realtime' : 'historical');
@@ -305,11 +343,19 @@ class NoiseMonitoringApp {
     checkUrlParams() {
         const params = new URLSearchParams(window.location.search);
         
-        const monitor = params.get('monitor');
-        if (monitor) {
+        const monitors = params.get('monitors');
+        if (monitors) {
+            const monitorIds = monitors.split(',');
             const monitorSelect = utils.getElement('monitor');
-            monitorSelect.value = monitor;
-            this.currentMonitor = monitor;
+            
+            monitorIds.forEach(id => {
+                const option = Array.from(monitorSelect.options).find(opt => opt.value === id);
+                if (option) {
+                    option.selected = true;
+                }
+            });
+            
+            this.selectedMonitors = monitorIds;
         }
 
         const type = params.get('type');

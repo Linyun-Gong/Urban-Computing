@@ -352,7 +352,43 @@ class MonitorDAO {
             connection.release();
         }
     }
-    
+
+
+    /**
+     * 连接多个监控器的数据
+     * @param {Array} allData - 所有监控器的数据数组
+     * @param {Array} monitors - 监控器信息数组
+     * @returns {Array} 处理后的数据数组
+     */
+    concatenateData(allData, monitors) {
+        // 获取所有时间点
+        const timeSet = new Set();
+        allData.forEach(monitorData => {
+            monitorData.forEach(item => {
+                timeSet.add(item.datetime);
+            });
+        });
+
+        // 转换为有序数组
+        const times = Array.from(timeSet).sort();
+
+        // 为每个时间点整理数据
+        return times.map(time => ({
+            datetime: time,
+            monitors: allData.map((monitorData, index) => {
+                const point = monitorData.find(d => d.datetime === time);
+                if (point) {
+                    return {
+                        laeq: point.laeq,
+                        monitorId: monitors[index].monitor_id,
+                        displayName: monitors[index].display_name,
+                        monitorIndex: index
+                    };
+                }
+                return null;
+            }).filter(Boolean)
+        }));
+    }
 }
 
 export default new MonitorDAO();
