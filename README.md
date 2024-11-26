@@ -6,11 +6,13 @@ https://data.smartdublin.ie/dataset/sonitus
 
 ## Run Command：
 ### Run the proxy server
+_npm install express cors dotenv mysql2_
 1. cd <project location>/noise-monitoring-proxy
 2. node server.js
 
 ### Run the database server
-The AWS RDS database is used here.
+The AWS RDS database is used here
+_npm install node-schedule morgan _    
 1. cd <project location>/db
 2. node server.js
 
