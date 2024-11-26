@@ -17,6 +17,7 @@ class NoiseMonitoringApp {
         this.isLoading = false;
         this.selectedMonitors = [];
         this.isRealtime = false;
+        this.userStartTime = null;
         this.initialize();
     }
 
@@ -94,7 +95,6 @@ class NoiseMonitoringApp {
         startTimeInput.addEventListener('change', () => this.validateTimeInputs());
         endTimeInput.addEventListener('change', () => this.validateTimeInputs());
 
-        // 添加快捷键支持
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.ctrlKey) {
                 this.fetchAndDisplayData();
@@ -125,13 +125,16 @@ class NoiseMonitoringApp {
         
         endTimeGroup.style.display = this.isRealtime ? 'none' : 'block';
         
-        if (this.isRealtime && this.updateInterval) {
+        if (!this.isRealtime && this.updateInterval) {
+            console.log('Clearing real-time update interval');
             clearInterval(this.updateInterval);
             this.updateInterval = null;
+            this.userStartTime = null;
         }
 
         this.updateUrlParameters();
     }
+
 
     /**
      * Handles changes in monitor selection
@@ -208,6 +211,12 @@ class NoiseMonitoringApp {
                 new Date() : 
                 new Date(utils.getElement('endTime').value);
 
+            // 在实时模式下保存用户选择的开始时间
+            if (this.isRealtime) {
+                this.userStartTime = startTime;
+                console.log('Set user start time:', this.userStartTime);
+            }
+
             console.log('Request parameters:', {
                 monitors: this.selectedMonitors,
                 startTime: startTime.toISOString(),
@@ -219,6 +228,7 @@ class NoiseMonitoringApp {
                 return;
             }
 
+            // 清除现有的更新间隔
             if (this.updateInterval) {
                 clearInterval(this.updateInterval);
                 this.updateInterval = null;
@@ -238,7 +248,9 @@ class NoiseMonitoringApp {
             chartModule.updateChart(data);
             this.updateDataInfo(startTime, endTime, data.length);
 
+            // 如果是实时模式，设置自动更新
             if (this.isRealtime) {
+                console.log('Starting real-time updates...');
                 this.setupDataUpdateInterval();
             }
 
@@ -257,32 +269,61 @@ class NoiseMonitoringApp {
      * Sets up the data update interval
      */
     setupDataUpdateInterval() {
-        this.updateInterval = setInterval(async () => {
-            try {
-                const newEndTime = new Date();
-                const newStartTime = this.isRealtime ?
-                    new Date(newEndTime - (60 * 60 * 1000)) : // 最近一小时
-                    new Date(utils.getElement('startTime').value);
-                
-                const data = await api.getData(
-                    this.selectedMonitors,
-                    newStartTime,
-                    newEndTime,
-                    { fusionType: 'concatenated' }
-                );
-                
-                if (data && data.length > 0) {
-                    chartModule.updateChart(data);
-                    this.updateDataInfo(newStartTime, newEndTime, data.length);
-                }
-            } catch (error) {
-                console.error('Error in interval update:', error);
-                clearInterval(this.updateInterval);
-                this.updateInterval = null;
-                utils.showError('Real-time update failed: ' + error.message);
-            }
-        }, 5 * 60 * 1000); // 每5分钟更新一次
+        console.log('Setting up real-time update interval...');
+        
+        // 先清除可能存在的旧定时器
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+            this.updateInterval = null;
+        }
+
+        // 立即执行一次数据更新
+        this.updateRealtimeData();
+
+        // 设置定时器
+        this.updateInterval = setInterval(() => {
+            this.updateRealtimeData();
+        }, 5 * 60 * 1000); // 5分钟
+
+        console.log('Real-time update interval set');
     }
+
+    
+    /**
+     * 更新实时数据
+     */
+    async updateRealtimeData() {
+        try {
+            console.log('Updating real-time data...');
+            const endTime = new Date();
+            const startTime = this.userStartTime;
+
+            console.log('Time range:', {
+                start: startTime.toISOString(),
+                end: endTime.toISOString()
+            });
+
+            const data = await api.getData(
+                this.selectedMonitors,
+                startTime,
+                endTime,
+                { fusionType: 'concatenated' }
+            );
+            
+            if (data && data.length > 0) {
+                console.log(`Received ${data.length} data points`);
+                chartModule.updateChart(data);
+                this.updateDataInfo(startTime, endTime, data.length);
+            } else {
+                console.log('No new data received');
+            }
+        } catch (error) {
+            console.error('Error updating real-time data:', error);
+            // 不要在出错时停止更新
+            utils.showError('Data update failed: ' + error.message);
+        }
+    }
+
 
     /**
      * Updates the data information display
@@ -371,6 +412,7 @@ class NoiseMonitoringApp {
      */
     cleanup() {
         if (this.updateInterval) {
+            console.log('Cleaning up update interval');
             clearInterval(this.updateInterval);
             this.updateInterval = null;
         }

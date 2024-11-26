@@ -1,3 +1,4 @@
+// chart.js
 /**
  * Chart module for noise monitoring
  */
@@ -22,7 +23,6 @@ const chartModule = {
 
     /**
      * 格式化日期时间
-     * @private
      */
     formatDateTime(datetime) {
         const date = new Date(datetime);
@@ -38,7 +38,6 @@ const chartModule = {
 
     /**
      * 更新或创建图表
-     * @param {Array} data - 噪声数据数组
      */
     updateChart(data) {
         if (!data || data.length === 0) {
@@ -52,36 +51,71 @@ const chartModule = {
             return;
         }
 
-        this.destroyChart();
+        // 如果图表已存在，更新数据而不是重新创建
+        if (this.chart) {
+            const datasets = this.createDatasets(data);
+            const labels = data.map(item => new Date(item.datetime));
 
-        const chartConfig = this.createChartConfig(data);
-        this.chart = new Chart(canvas.getContext('2d'), chartConfig);
-        this.addStatistics(data);
+            this.chart.data.labels = labels;
+            this.chart.data.datasets = datasets;
+
+            // 更新统计信息
+            this.addStatistics(data);
+
+            // 重新计算Y轴范围
+            const allValues = [];
+            data.forEach(item => {
+                if (item.monitors) {
+                    item.monitors.forEach(monitor => {
+                        if (monitor.laeq) allValues.push(monitor.laeq);
+                    });
+                } else {
+                    if (item.laeq) allValues.push(item.laeq);
+                    if (item.la10) allValues.push(item.la10);
+                    if (item.la90) allValues.push(item.la90);
+                }
+            });
+
+            const minValue = Math.min(...allValues);
+            const maxValue = Math.max(...allValues);
+            const padding = (maxValue - minValue) * 0.1;
+
+            this.chart.options.scales.y.min = Math.max(0, Math.floor((minValue - padding) / 5) * 5);
+            this.chart.options.scales.y.max = Math.ceil((maxValue + padding) / 5) * 5;
+
+            this.chart.update('none'); // 使用 'none' 模式以提高性能
+        } else {
+            // 创建新图表
+            const chartConfig = this.createChartConfig(data);
+            this.chart = new Chart(canvas.getContext('2d'), chartConfig);
+            this.addStatistics(data);
+        }
     },
 
     /**
      * 创建图表配置
-     * @private
      */
     createChartConfig(data) {
-        const labels = data.map(item => this.formatDateTime(item.datetime));
+        const labels = data.map(item => new Date(item.datetime));
         const datasets = this.createDatasets(data);
 
-        // 计算合适的Y轴范围
+        // 计算Y轴范围
         const allValues = [];
         data.forEach(item => {
             if (item.monitors) {
                 item.monitors.forEach(monitor => {
                     if (monitor.laeq) allValues.push(monitor.laeq);
                 });
-            } else if (item.laeq) {
-                allValues.push(item.laeq);
+            } else {
+                if (item.laeq) allValues.push(item.laeq);
+                if (item.la10) allValues.push(item.la10);
+                if (item.la90) allValues.push(item.la90);
             }
         });
 
         const minValue = Math.min(...allValues);
         const maxValue = Math.max(...allValues);
-        const padding = (maxValue - minValue) * 0.1; // 添加10%的padding
+        const padding = (maxValue - minValue) * 0.1;
 
         return {
             type: 'line',
@@ -98,14 +132,31 @@ const chartModule = {
                 },
                 scales: {
                     x: {
+                        type: 'time',
+                        time: {
+                            parser: 'YYYY-MM-DD HH:mm:ss',
+                            tooltipFormat: 'MM/DD/YYYY, HH:mm',
+                            displayFormats: {
+                                millisecond: 'HH:mm:ss.SSS',
+                                second: 'HH:mm:ss',
+                                minute: 'HH:mm',
+                                hour: 'MM/DD, HH:mm'
+                            }
+                        },
+                        adapters: {
+                            date: {
+                                locale: 'en'
+                            }
+                        },
                         title: {
                             display: true,
                             text: 'Time'
                         },
                         ticks: {
-                            maxTicksLimit: 10,
                             maxRotation: 45,
-                            minRotation: 45
+                            minRotation: 45,
+                            autoSkip: true,
+                            maxTicksLimit: 10
                         }
                     },
                     y: {
@@ -113,11 +164,10 @@ const chartModule = {
                             display: true,
                             text: 'Noise Level (dB)'
                         },
-                        // 设置合适的刻度范围
-                        min: Math.max(0, minValue - padding),
-                        max: maxValue + padding,
+                        min: Math.max(0, Math.floor((minValue - padding) / 5) * 5),
+                        max: Math.ceil((maxValue + padding) / 5) * 5,
                         ticks: {
-                            stepSize: 5 // 设置刻度间隔
+                            stepSize: 5
                         }
                     }
                 },
@@ -127,17 +177,19 @@ const chartModule = {
                         labels: {
                             usePointStyle: true,
                             pointStyle: 'circle',
-                            generateLabels: (chart) => this.customLegendLabels(chart)
+                            boxWidth: 8,
+                            padding: 20
                         }
                     },
                     tooltip: {
                         mode: 'index',
                         intersect: false,
                         callbacks: {
-                            label: (context) => {
-                                const value = context.parsed.y?.toFixed(1);
-                                if (!value) return null;
-                                return `${context.dataset.label}: ${value} dB`;
+                            title: function(context) {
+                                if (context[0]) {
+                                    return moment(context[0].parsed.x).format('MM/DD/YYYY, HH:mm:ss');
+                                }
+                                return '';
                             }
                         }
                     }
@@ -148,7 +200,6 @@ const chartModule = {
 
     /**
      * 创建数据集
-     * @private
      */
     createDatasets(data) {
         // 检查是否是多监控器数据
@@ -161,7 +212,7 @@ const chartModule = {
                     if (!monitorDatasets.has(monitor.monitorId)) {
                         monitorDatasets.set(monitor.monitorId, {
                             data: Array(data.length).fill(null),
-                            displayName: monitor.displayName || `Monitor ${monitor.monitorIndex + 1}`
+                            displayName: monitor.displayName || monitor.monitorId
                         });
                     }
                     const index = data.indexOf(item);
@@ -182,13 +233,12 @@ const chartModule = {
             }));
         }
 
-        // 单个监控器数据处理保持不变
+        // 单个监控器数据处理
         return this.createDefaultDatasets(data);
     },
-    
+
     /**
      * 创建默认数据集（单个监控器）
-     * @private
      */
     createDefaultDatasets(data) {
         return [
@@ -224,75 +274,23 @@ const chartModule = {
     },
 
     /**
-     * 创建连接数据集
-     * @private
-     */
-    createConcatenatedDatasets(data) {
-        return [
-            {
-                label: 'Combined LAeq (dB)',
-                data: data.map(item => item.laeq),
-                borderColor: this.colors.multiple[0].primary,
-                backgroundColor: this.colors.multiple[0].secondary,
-                fill: true,
-                tension: 0.1,
-                pointRadius: 2,
-                pointHoverRadius: 5
-            }
-        ];
-    },
-
-
-    /**
-     * 创建工具提示回调
-     * @private
-     */
-    createTooltipCallback(fusionType) {
-        return function(context) {
-            const value = context.parsed.y.toFixed(1);
-            let label = `${context.dataset.label}: ${value} dB`;
-            
-            if (fusionType === 'weighted') {
-                label += ' (Weighted Average)';
-            } else if (fusionType === 'concatenated') {
-                label += ' (Combined)';
-            }
-
-            return label;
-        };
-    },
-
-    /**
-     * 自定义图例标签
-     * @private
-     */
-    customLegendLabels(chart) {
-        const datasets = chart.data.datasets;
-        return datasets.map((dataset, i) => ({
-            text: dataset.label,
-            fillStyle: dataset.backgroundColor,
-            strokeStyle: dataset.borderColor,
-            lineWidth: 2,
-            hidden: !chart.isDatasetVisible(i),
-            index: i
-        }));
-    },
-
-    /**
      * 添加统计信息
-     * @param {Array} data - 数据数组
-     * @param {string} fusionType - 融合类型
      */
-    addStatistics(data, fusionType) {
-        const statsDiv = document.getElementById('chartStats') || document.createElement('div');
-        statsDiv.id = 'chartStats';
-        statsDiv.className = 'chart-statistics';
+    addStatistics(data) {
+        const statsDiv = document.getElementById('chartStats');
+        if (!statsDiv) return;
 
+        statsDiv.style.display = 'block';
         const stats = this.calculateStatistics(data);
-        const fusionLabel = fusionType !== 'none' ? ` (${fusionType})` : '';
+        
+        // 获取监控器名称
+        let monitorName = 'Monitor';
+        if (data[0]?.monitors) {
+            monitorName = data[0].monitors[0]?.displayName || 'Monitor';
+        }
 
         statsDiv.innerHTML = `
-            <h3>Statistics${fusionLabel}</h3>
+            <h3>Statistics</h3>
             <div class="stats-content">
                 <div class="stat-group">
                     <h4>LAeq</h4>
@@ -326,21 +324,19 @@ const chartModule = {
                 </div>
             </div>
         `;
-
-        const chartContainer = document.getElementById('chart').parentElement;
-        const existingStats = chartContainer.querySelector('.chart-statistics');
-        if (existingStats) {
-            existingStats.remove();
-        }
-        chartContainer.appendChild(statsDiv);
     },
 
     /**
      * 计算统计数据
-     * @private
      */
     calculateStatistics(data) {
-        const getValue = (arr, key) => arr.map(item => item[key]).filter(v => v != null);
+        const getValue = (arr, key) => arr.map(item => {
+            if (item.monitors) {
+                return Math.max(...item.monitors.map(m => m[key] || 0));
+            }
+            return item[key];
+        }).filter(v => v != null);
+
         const average = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
 
         const laeqValues = getValue(data, 'laeq');
