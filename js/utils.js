@@ -1,58 +1,31 @@
+// js/utils.js
+
 /**
  * Utility functions module
  * Contains helper functions used throughout the application
  */
 const utils = {
     /**
-     * Formats a date object to ISO string format
-     * @param {Date} date - Date object to format
-     * @returns {string} Formatted date string
+     * Formats a date for API requests
+     * @param {Date|string} date - Date to format
+     * @returns {string} Formatted date string in ISO format
      */
     formatDate(date) {
+        if (typeof date === 'string') {
+            return new Date(date).toISOString();
+        }
         return date.toISOString();
     },
 
     /**
-     * Shows an error message to the user
-     * @param {string} message - Error message to display
-     * @param {number} [duration] - Duration in ms to show the error (optional)
+     * Formats a date for datetime-local input
+     * @param {Date} date - Date to format
+     * @returns {string} Formatted date string for datetime-local input
      */
-    showError(message, duration = 0) {
-        const container = document.querySelector('.container');
-        const existingError = container.querySelector('.error');
-        
-        if (existingError) {
-            existingError.remove();
-        }
-        
-        const error = document.createElement('div');
-        error.className = 'error';
-        error.textContent = message;
-        container.appendChild(error);
-
-        // Add shake animation
-        error.style.animation = 'shake 0.5s';
-
-        if (duration > 0) {
-            setTimeout(() => {
-                error.style.animation = 'fadeOut 0.5s';
-                setTimeout(() => error.remove(), 500);
-            }, duration);
-        }
-    },
-
-    /**
-     * Shows or hides the loading indicator
-     * @param {boolean} show - Whether to show or hide the loading indicator
-     */
-    showLoading(show) {
-        const loadingElement = document.getElementById('loadingIndicator');
-        if (loadingElement) {
-            loadingElement.style.display = show ? 'block' : 'none';
-            if (show) {
-                loadingElement.textContent = 'Loading data...';
-            }
-        }
+    formatDateTimeLocal(date) {
+        return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 16);
     },
 
     /**
@@ -64,35 +37,143 @@ const utils = {
     getElement(id) {
         const element = document.getElementById(id);
         if (!element) {
+            console.error(`Element not found: ${id}`);
             throw new Error(`Element with id '${id}' not found`);
         }
         return element;
     },
 
     /**
-     * Sets default dates for the date inputs
+     * Shows an error message to the user
+     * @param {string} message - Error message to display
+     * @param {number} [duration=5000] - Duration in ms to show the error
      */
-    setDefaultDates() {
-        const now = new Date();
-        const startTime = this.getElement('startTime');
-        const endTime = this.getElement('endTime');
+    showError(message, duration = 5000) {
+        console.error('Error:', message);
         
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        
-        startTime.value = this.formatDateTimeLocal(yesterday);
-        endTime.value = this.formatDateTimeLocal(now);
+        // Remove existing error if present
+        this.removeExistingError();
+
+        // Create and show new error
+        const error = document.createElement('div');
+        error.className = 'error-message';
+        error.innerHTML = `
+            <div class="error-content">
+                <span class="error-text">${message}</span>
+                <button class="error-close">&times;</button>
+            </div>
+        `;
+
+        // Add to document
+        document.body.appendChild(error);
+
+        // Add close button handler
+        const closeButton = error.querySelector('.error-close');
+        if (closeButton) {
+            closeButton.addEventListener('click', () => this.removeExistingError());
+        }
+
+        // Auto remove after duration if specified
+        if (duration > 0) {
+            setTimeout(() => {
+                if (document.body.contains(error)) {
+                    error.classList.add('fade-out');
+                    setTimeout(() => this.removeExistingError(), 500);
+                }
+            }, duration);
+        }
     },
 
     /**
-     * Formats a date for datetime-local input
-     * @param {Date} date - Date to format
-     * @returns {string} Formatted date string
+     * Removes existing error message
      */
-    formatDateTimeLocal(date) {
-        return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-            .toISOString()
-            .slice(0, 16);
+    removeExistingError() {
+        const existingError = document.querySelector('.error-message');
+        if (existingError) {
+            existingError.remove();
+        }
+    },
+
+    /**
+     * Shows or hides the loading indicator
+     * @param {boolean} show - Whether to show or hide the loading indicator
+     * @param {string} [message='Loading...'] - Custom loading message
+     */
+    showLoading(show, message = 'Loading...') {
+        let loader = document.getElementById('loadingIndicator');
+        
+        if (!loader) {
+            loader = document.createElement('div');
+            loader.id = 'loadingIndicator';
+            loader.className = 'loading-indicator';
+            document.body.appendChild(loader);
+        }
+
+        if (show) {
+            loader.innerHTML = `
+                <div class="loading-spinner"></div>
+                <div class="loading-message">${message}</div>
+            `;
+            loader.style.display = 'flex';
+        } else {
+            loader.style.display = 'none';
+        }
+    },
+
+    /**
+     * Sets default dates for the date inputs
+     */
+    setDefaultDates() {
+        try {
+            const now = new Date();
+            const startTime = this.getElement('startTime');
+            const endTime = this.getElement('endTime');
+            
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            startTime.value = this.formatDateTimeLocal(yesterday);
+            endTime.value = this.formatDateTimeLocal(now);
+        } catch (error) {
+            console.error('Error setting default dates:', error);
+            this.showError('Failed to set default dates');
+        }
+    },
+
+    /**
+     * Validates time range
+     * @param {Date} startTime - Start time
+     * @param {Date} endTime - End time
+     * @param {number} [maxDays=7] - Maximum allowed days between dates
+     * @returns {boolean} Whether the time range is valid
+     */
+    validateTimeRange(startTime, endTime, maxDays = 7) {
+        // Convert to Date objects if strings
+        const start = new Date(startTime);
+        const end = new Date(endTime);
+
+        // Check for invalid dates
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            this.showError('Invalid date format');
+            return false;
+        }
+
+        // Check order
+        if (start >= end) {
+            this.showError('Start time must be before end time');
+            return false;
+        }
+
+        // Check range
+        const timeDiff = end - start;
+        const dayDiff = timeDiff / (1000 * 60 * 60 * 24);
+        
+        if (dayDiff > maxDays) {
+            this.showError(`Time range cannot exceed ${maxDays} days`);
+            return false;
+        }
+
+        return true;
     },
 
     /**
@@ -114,37 +195,24 @@ const utils = {
     },
 
     /**
-     * Validates time range
-     * @param {Date} startTime - Start time
-     * @param {Date} endTime - End time
-     * @returns {boolean} Whether the time range is valid
+     * Formats a number with specified decimal places
+     * @param {number} value - Number to format
+     * @param {number} [decimals=1] - Number of decimal places
+     * @returns {string} Formatted number
      */
-    validateTimeRange(startTime, endTime) {
-        if (startTime >= endTime) {
-            this.showError('Start time must be before end time');
-            return false;
-        }
-
-        const timeDiff = endTime - startTime;
-        const maxDiff = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-
-        if (timeDiff > maxDiff) {
-            this.showError('Time range cannot exceed 7 days');
-            return false;
-        }
-
-        return true;
+    formatNumber(value, decimals = 1) {
+        return Number(value).toFixed(decimals);
     },
 
-    formatDate(date) {
-        if (typeof date === 'string') {
-            // 如果是字符串格式，确保转换为正确的 ISO 格式
-            return new Date(date).toISOString();
-        }
-        // 如果是 Date 对象，直接转换为 ISO 格式
-        return date.toISOString();
+    /**
+     * Checks if a value is a valid number
+     * @param {any} value - Value to check
+     * @returns {boolean} Whether the value is a valid number
+     */
+    isValidNumber(value) {
+        const num = parseFloat(value);
+        return !isNaN(num) && isFinite(num);
     }
-    
 };
 
 export default utils;

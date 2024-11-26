@@ -4,761 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Noise Monitoring Dashboard</title>
-    
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: Arial, sans-serif;
-        }
-
-        body {
-            padding: 20px;
-            background-color: #f5f5f5;
-            min-height: 100vh;
-            line-height: 1.6;
-            color: #333;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        h1 {
-            margin-bottom: 30px;
-            color: #2c3e50;
-            text-align: center;
-            font-size: 2.2em;
-            font-weight: 700;
-            position: relative;
-        }
-
-        .controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 25px;
-            margin-bottom: 30px;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            border: 1px solid #e9ecef;
-        }
-
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        label {
-            font-weight: 600;
-            color: #495057;
-            font-size: 0.95em;
-        }
-
-        select,
-        input {
-            padding: 12px;
-            border: 2px solid #dee2e6;
-            border-radius: 6px;
-            font-size: 14px;
-            background-color: white;
-            transition: all 0.3s ease;
-        }
-
-        select {
-            cursor: pointer;
-            appearance: none;
-            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            background-size: 16px;
-            padding-right: 40px;
-        }
-
-        select:hover,
-        input:hover {
-            border-color: #007bff;
-        }
-
-        select:focus,
-        input:focus {
-            outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
-        }
-
-        button {
-            padding: 12px 24px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            display: block;
-            margin: 0 auto;
-            min-width: 180px;
-        }
-
-        button:hover {
-            background-color: #0056b3;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        button:active {
-            transform: translateY(0);
-            box-shadow: none;
-        }
-
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        #chart-container {
-            width: 100%;
-            height: 450px;
-            margin-top: 30px;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
-            padding: 20px;
-            background-color: white;
-            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05);
-        }
-
-        canvas {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        .loading {
-            text-align: center;
-            margin: 20px 0;
-            color: #007bff;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .loading::after {
-            content: '';
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #007bff;
-            border-radius: 50%;
-            border-top-color: transparent;
-            animation: spin 1s linear infinite;
-        }
-
-        .error {
-            color: #dc3545;
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            padding: 15px;
-            margin-top: 15px;
-            border-radius: 6px;
-            text-align: center;
-            font-weight: 500;
-        }
-
-        .chart-statistics {
-            display: flex;
-            justify-content: space-around;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 6px;
-            margin-top: 20px;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-
-        .stat-item {
-            text-align: center;
-        }
-
-        .stat-label {
-            font-weight: 600;
-            color: #495057;
-            margin-right: 8px;
-        }
-
-        .stat-value {
-            color: #007bff;
-            font-weight: 600;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 20px;
-                margin: 0 10px;
-            }
-
-            .controls {
-                grid-template-columns: 1fr;
-                gap: 15px;
-            }
-
-            h1 {
-                font-size: 1.8em;
-            }
-
-            #chart-container {
-                height: 350px;
-            }
-
-            button {
-                width: 100%;
-            }
-
-            .chart-statistics {
-                flex-direction: column;
-                align-items: center;
-            }
-        }
-    </style>
-
-    <script>
-        // API 模块
-        const api = {
-            BASE_URL: 'http://localhost:3000',
-            credentials: {
-                username: 'dublincityapi',
-                password: 'Xpa5vAQ9ki'
-            },
-
-            dateToUnixTimestamp(date) {
-                return Math.floor(date.getTime() / 1000);
-            },
-
-            async makeRequest(endpoint, params = {}) {
-                try {
-                    const response = await fetch(`${this.BASE_URL}${endpoint}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        },
-                        body: new URLSearchParams({
-                            username: this.credentials.username,
-                            password: this.credentials.password,
-                            ...params
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        console.error('API Error:', {
-                            status: response.status,
-                            statusText: response.statusText,
-                            error: errorText
-                        });
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
-                    return await response.json();
-                } catch (error) {
-                    console.error('Request failed:', error);
-                    throw error;
-                }
-            },
-
-            async getMonitors() {
-                try {
-                    const data = await this.makeRequest('/api/monitors');
-                    console.log('Raw monitors data:', data);
-
-                    const monitorsArray = Array.isArray(data) ? data : (data.monitors || []);
-                    
-                    // 过滤包含 'noise' 的监测点
-                    const noiseMonitors = monitorsArray.filter(monitor => 
-                        monitor && 
-                        typeof monitor === 'object' && 
-                        monitor.label && 
-                        monitor.label.toLowerCase().includes('noise')
-                    );
-
-                    console.log('Filtered noise monitors:', noiseMonitors);
-
-                    // 格式化监测点数据
-                    const formattedMonitors = noiseMonitors.map(monitor => ({
-                        id: monitor.id || monitor.serial_number,
-                        displayName: `${monitor.label} - ${monitor.location || 'Unknown'}`,
-                        name: monitor.label,
-                        location: monitor.location || 'Unknown',
-                        latitude: monitor.latitude,
-                        longitude: monitor.longitude,
-                        ...monitor
-                    })).sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-                    console.log('Formatted monitors:', formattedMonitors);
-                    return formattedMonitors;
-                } catch (error) {
-                    console.error('Error fetching monitors:', error);
-                    throw new Error(`Failed to fetch monitors: ${error.message}`);
-                }
-            },
-
-            async getData(monitorId, startTime, endTime) {
-                try {
-                    const startTimestamp = this.dateToUnixTimestamp(new Date(startTime));
-                    const endTimestamp = this.dateToUnixTimestamp(new Date(endTime));
-
-                    console.log('Fetching data:', { monitorId, startTimestamp, endTimestamp });
-                    
-                    const data = await this.makeRequest('/api/data', {
-                        monitor: monitorId,
-                        start: startTimestamp,
-                        end: endTimestamp
-                    });
-
-                    return Array.isArray(data) ? data : (data.measurements || []);
-                } catch (error) {
-                    console.error('Error fetching data:', error);
-                    throw new Error(`Failed to fetch data: ${error.message}`);
-                }
-            }
-        };
-
-        // 图表模块
-        const chartModule = {
-            chart: null,
-
-            formatDateTime(datetime) {
-                return new Date(datetime).toLocaleString();
-            },
-
-            destroyChart() {
-                if (this.chart) {
-                    this.chart.destroy();
-                    this.chart = null;
-                }
-            },
-
-            updateChart(data) {
-                console.log('Updating chart with data:', data);
-                const canvas = document.getElementById('chart');
-                this.destroyChart();
-
-                // 确保数据有效并排序
-                const validData = data
-                    .filter(item => (
-                        item &&
-                        item.datetime &&
-                        !isNaN(parseFloat(item.laeq)) &&
-                        !isNaN(parseFloat(item.lafmax)) &&
-                        !isNaN(parseFloat(item.la90))
-                    ))
-                    .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
-
-                if (validData.length === 0) {
-                    console.error('No valid data points found');
-                    return;
-                }
-
-                const chartData = {
-                    labels: validData.map(item => new Date(item.datetime)),
-                    datasets: [
-                        {
-                            label: 'LAeq (dB)',
-                            data: validData.map(item => ({
-                                x: new Date(item.datetime),
-                                y: parseFloat(item.laeq)
-                            })),
-                            borderColor: '#007bff',
-                            backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                            fill: true,
-                            tension: 0.1,
-                            borderWidth: 4,         
-                            pointRadius: 0
-                        },
-                        {
-                            label: 'LAFmax (dB)',
-                            data: validData.map(item => ({
-                                x: new Date(item.datetime),
-                                y: parseFloat(item.lafmax)
-                            })),
-                            borderColor: '#28a745',
-                            fill: false,
-                            tension: 0.1,
-                            borderWidth: 2,         
-                            pointRadius: 0
-                        },
-                        {
-                            label: 'LA90 (dB)',
-                            data: validData.map(item => ({
-                                x: new Date(item.datetime),
-                                y: parseFloat(item.la90)
-                            })),
-                            borderColor: '#dc3545',
-                            fill: false,
-                            tension: 0.1,
-                            borderWidth: 2,         
-                            pointRadius: 0
-                        }
-                    ]
-                };
-
-                this.chart = new Chart(canvas.getContext('2d'), {
-                    type: 'line',
-                    data: chartData,
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: {
-                            intersect: false,
-                            mode: 'index'
-                        },
-                        scales: {
-                            x: {
-                                type: 'time',
-                                time: {
-                                    unit: 'hour',
-                                    displayFormats: {
-                                        hour: 'HH:mm'
-                                    }
-                                },
-                                title: {
-                                    display: true,
-                                    text: 'Time'
-                                }
-                            },
-                            y: {
-                                title: {
-                                    display: true,
-                                    text: 'Noise Level (dB)'
-                                },
-                                min: function(ctx) {
-                                    const values = validData.map(item => 
-                                        Math.min(
-                                            parseFloat(item.laeq), 
-                                            parseFloat(item.la90)
-                                        )
-                                    );
-                                    return Math.floor(Math.min(...values) / 10) * 10;
-                                },
-                                max: function(ctx) {
-                                    const values = validData.map(item => 
-                                        Math.max(
-                                            parseFloat(item.laeq), 
-                                            parseFloat(item.lafmax)
-                                        )
-                                    );
-                                    return Math.ceil(Math.max(...values) / 10) * 10;
-                                }
-                            }
-                        },
-                        plugins: {
-                            legend: {
-                                position: 'top',
-                                labels: {
-                                    usePointStyle: true,
-                                    pointStyle: 'circle'
-                                }
-                            },
-                            tooltip: {
-                                mode: 'index',
-                                intersect: false,
-                                callbacks: {
-                                    label: function(context) {
-                                        return `${context.dataset.label}: ${context.parsed.y.toFixed(1)} dB`;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-
-                // 添加统计信息
-                this.addStatistics(validData);
-            },
-
-            addStatistics(data) {
-                const stats = {
-                    laeq: {
-                        min: Math.min(...data.map(item => parseFloat(item.laeq))).toFixed(1),
-                        max: Math.max(...data.map(item => parseFloat(item.laeq))).toFixed(1),
-                        avg: (data.reduce((sum, item) => sum + parseFloat(item.laeq), 0) / data.length).toFixed(1)
-                    },
-                    lafmax: {
-                        avg: (data.reduce((sum, item) => sum + parseFloat(item.lafmax), 0) / data.length).toFixed(1),
-                        max: Math.max(...data.map(item => parseFloat(item.lafmax))).toFixed(1)
-                    },
-                    la90: {
-                        avg: (data.reduce((sum, item) => sum + parseFloat(item.la90), 0) / data.length).toFixed(1)
-                    }
-                };
-
-                const statsDiv = document.createElement('div');
-                statsDiv.className = 'chart-statistics';
-                statsDiv.innerHTML = `
-                    <div class="stat-item">
-                        <span class="stat-label">LAeq:</span>
-                        <span class="stat-value">Min: ${stats.laeq.min} dB / Avg: ${stats.laeq.avg} dB / Max: ${stats.laeq.max} dB</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">LAFmax:</span>
-                        <span class="stat-value">Avg: ${stats.lafmax.avg} dB / Max: ${stats.lafmax.max} dB</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">LA90 Avg:</span>
-                        <span class="stat-value">${stats.la90.avg} dB</span>
-                    </div>
-                `;
-
-                const chartContainer = document.getElementById('chart-container');
-                const existingStats = chartContainer.querySelector('.chart-statistics');
-                if (existingStats) {
-                    existingStats.remove();
-                }
-                chartContainer.appendChild(statsDiv);
-            }
-        };
-
-        // 工具函数模块
-        const utils = {
-            showError(message) {
-                const container = document.querySelector('.container');
-                const existingError = container.querySelector('.error');
-                if (existingError) {
-                    existingError.remove();
-                }
-                
-                const error = document.createElement('div');
-                error.className = 'error';
-                error.textContent = message;
-                container.appendChild(error);
-            },
-
-            showLoading(show) {
-                document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
-            },
-
-            setDefaultDates() {
-                const now = new Date();
-                const yesterday = new Date(now);
-                yesterday.setDate(yesterday.getDate() - 1);
-                
-                document.getElementById('startTime').value = this.formatDateTimeLocal(yesterday);
-                document.getElementById('endTime').value = this.formatDateTimeLocal(now);
-            },
-
-            formatDateTimeLocal(date) {
-                return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-                    .toISOString()
-                    .slice(0, 16);
-            }
-        };
-
-        // 应用主类
-        class NoiseMonitoringApp {
-            constructor() {
-                this.updateInterval = null;
-                this.isLoading = false;
-                this.currentMonitor = null;
-                this.isRealtime = false;
-                this.initialize();
-            }
-
-            async initialize() {
-                try {
-                    utils.showLoading(true);
-                    await this.loadMonitors();
-                    this.setupEventListeners();
-                    utils.setDefaultDates();
-                } catch (error) {
-                    console.error('Initialization error:', error);
-                    utils.showError(error.message);
-                } finally {
-                    utils.showLoading(false);
-                }
-            }
-
-            async loadMonitors() {
-                try {
-                    const monitors = await api.getMonitors();
-                    const select = document.getElementById('monitor');
-                    select.innerHTML = '<option value="">Select a monitor...</option>';
-                    
-                    monitors.forEach(monitor => {
-                        const option = document.createElement('option');
-                        option.value = monitor.id;
-                        option.textContent = monitor.displayName;
-                        select.appendChild(option);
-                    });
-                } catch (error) {
-                    throw new Error(`Failed to load monitors: ${error.message}`);
-                }
-            }
-
-            setupEventListeners() {
-                document.getElementById('dataType').addEventListener('change', () => {
-                    const isRealtime = document.getElementById('dataType').value === 'realtime';
-                    document.getElementById('endTimeGroup').style.display = isRealtime ? 'none' : 'block';
-                    this.isRealtime = isRealtime;
-                    
-                    if (this.updateInterval) {
-                        clearInterval(this.updateInterval);
-                        this.updateInterval = null;
-                    }
-                });
-
-                document.getElementById('monitor').addEventListener('change', (e) => {
-                    this.currentMonitor = e.target.value;
-                    if (chartModule.chart) {
-                        chartModule.destroyChart();
-                    }
-                });
-
-                document.getElementById('fetchData').addEventListener('click', () => this.fetchAndDisplayData());
-            }
-
-            async fetchAndDisplayData() {
-                if (this.isLoading) return;
-
-                try {
-                    this.isLoading = true;
-                    utils.showLoading(true);
-
-                    const monitor = document.getElementById('monitor').value;
-                    if (!monitor) {
-                        throw new Error('Please select a monitor');
-                    }
-
-                    const startTime = document.getElementById('startTime').value;
-                    const endTime = this.isRealtime ? new Date().toISOString() : document.getElementById('endTime').value;
-                    if (!this.validateTimeInputs()) {
-                        return;
-                    }
-
-                    if (this.updateInterval) {
-                        clearInterval(this.updateInterval);
-                        this.updateInterval = null;
-                    }
-
-                    await this.updateChartData(monitor, startTime, endTime);
-
-                    if (this.isRealtime) {
-                        this.updateInterval = setInterval(async () => {
-                            const newEndTime = new Date().toISOString();
-                            await this.updateChartData(monitor, startTime, newEndTime);
-                        }, 5 * 60 * 1000); // 5分钟更新一次
-                    }
-
-                } catch (error) {
-                    utils.showError(error.message);
-                } finally {
-                    this.isLoading = false;
-                    utils.showLoading(false);
-                }
-            }
-
-            validateTimeInputs() {
-                const startTime = new Date(document.getElementById('startTime').value);
-                const endTime = new Date(document.getElementById('endTime').value);
-
-                if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-                    utils.showError('Please enter valid dates');
-                    return false;
-                }
-
-                if (startTime >= endTime) {
-                    utils.showError('Start time must be before end time');
-                    return false;
-                }
-
-                const timeDiff = endTime - startTime;
-                const maxDiff = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-
-                if (timeDiff > maxDiff) {
-                    utils.showError('Time range cannot exceed 7 days');
-                    return false;
-                }
-
-                return true;
-            }
-
-            async updateChartData(monitor, startTime, endTime) {
-                try {
-                    const data = await api.getData(monitor, startTime, endTime);
-                    console.log('Received data:', data);
-
-                    if (!data || data.length === 0) {
-                        throw new Error('No data available for the selected time range');
-                    }
-
-                    chartModule.updateChart(data);
-                } catch (error) {
-                    throw error;
-                }
-            }
-        }
-
-        // 初始化脚本
-        async function loadScripts() {
-            const scripts = [
-                'https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js',
-                'https://cdn.jsdelivr.net/npm/luxon@3.0.1/build/global/luxon.min.js',
-                'https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.1.0/dist/chartjs-adapter-luxon.min.js'
-            ];
-
-            const loadScript = (src) => {
-                return new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = src;
-                    script.onload = resolve;
-                    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-                    document.head.appendChild(script);
-                });
-            };
-
-            try {
-                for (const src of scripts) {
-                    await loadScript(src);
-                    console.log(`Loaded: ${src}`);
-                }
-            } catch (error) {
-                console.error('Script loading error:', error);
-                throw error;
-            }
-        }
-
-        // 应用初始化
-        window.addEventListener('load', async () => {
-            try {
-                await loadScripts();
-                
-                if (typeof Chart === 'undefined') {
-                    throw new Error('Chart.js failed to load');
-                }
-
-                console.log('All scripts loaded, initializing application...');
-                new NoiseMonitoringApp();
-                console.log('Application initialized successfully');
-            } catch (error) {
-                console.error('Error initializing application:', error);
-                utils.showError('Failed to initialize application: ' + error.message);
-            }
-        });
-    </script>
+    <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
     <div class="container">
@@ -767,36 +13,78 @@
         <div class="controls">
             <div class="control-group">
                 <label for="monitor">Select Monitor:</label>
-                <select id="monitor">
+                <select id="monitor" name="monitor">
                     <option value="">Select a monitor...</option>
                 </select>
             </div>
-            
+
             <div class="control-group">
                 <label for="dataType">Data Type:</label>
-                <select id="dataType">
+                <select id="dataType" name="dataType">
                     <option value="historical">Historical Data</option>
                     <option value="realtime">Real-time Data</option>
                 </select>
             </div>
-            
+
             <div class="control-group">
                 <label for="startTime">Start Time:</label>
-                <input type="datetime-local" id="startTime">
+                <input type="datetime-local" id="startTime" name="startTime">
             </div>
-            
+
             <div class="control-group" id="endTimeGroup">
                 <label for="endTime">End Time:</label>
-                <input type="datetime-local" id="endTime">
+                <input type="datetime-local" id="endTime" name="endTime">
             </div>
         </div>
-        
-        <button id="fetchData">Show Data</button>
-        <div id="loadingIndicator" class="loading" style="display: none;">Loading data...</div>
-        
-        <div id="chart-container">
-            <canvas id="chart"></canvas>
+
+        <div class="button-group">
+            <button id="fetchData" class="primary-button">Show Data</button>
+        </div>
+
+        <div id="loadingIndicator" class="loading" style="display: none;">
+            Loading data...
+        </div>
+
+        <div id="connectionStatus" class="connection-status">
+            <div class="status-indicator">
+                <span class="status-dot"></span>
+                <span class="status-text"></span>
+            </div>
+        </div>
+
+        <div class="data-container">
+            <div class="chart-wrapper">
+                <canvas id="chart"></canvas>
+                <div id="chartTooltip" class="chart-tooltip" style="display: none;"></div>
+            </div>
+
+            <div id="dataInfo" class="data-info" style="display: none;">
+                <div class="info-header">
+                    <h3>Data Information</h3>
+                    <span class="mode-badge"></span>
+                </div>
+                <div class="info-content"></div>
+            </div>
+
+            <div id="chartStats" class="chart-statistics" style="display: none;">
+                <h3>Statistics</h3>
+                <div class="stats-content">
+                    <div class="stat-group laeq">
+                        <h4>LAeq</h4>
+                        <div class="stat-items"></div>
+                    </div>
+                    <div class="stat-group la">
+                        <h4>LA10/LA90</h4>
+                        <div class="stat-items"></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/index.js"></script>
 </body>
 </html>

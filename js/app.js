@@ -1,4 +1,4 @@
-// 导入必要的模块
+// js/app.js
 import utils from './utils.js';
 import api from './api.js';
 import chartModule from './chart.js';
@@ -21,13 +21,27 @@ class NoiseMonitoringApp {
      */
     async initialize() {
         try {
+            console.log('Initializing application...');
             utils.showLoading(true);
+            
+            // 检查服务连接状态
+            const connectionStatus = await api.checkConnections();
+            console.log('Connection status:', connectionStatus);
+            
+            if (!connectionStatus.database && !connectionStatus.proxy) {
+                throw new Error('Neither database nor proxy service is available');
+            }
+    
+            // 即使数据库不可用也继续加载monitors
             await this.loadMonitors();
+            console.log('Monitors loaded successfully');
+            
             this.setupEventListeners();
             utils.setDefaultDates();
             this.setupResizeHandler();
             this.checkUrlParams();
         } catch (error) {
+            console.error('Initialization error:', error);
             utils.showError(error.message);
         } finally {
             utils.showLoading(false);
@@ -45,39 +59,39 @@ class NoiseMonitoringApp {
             // Clear existing options
             select.innerHTML = '<option value="">Select a monitor...</option>';
             
-            // Add monitors with displayName
-            monitors.forEach(monitor => {
-                const option = document.createElement('option');
-                option.value = monitor.id;
-                option.textContent = monitor.displayName; 
-                select.appendChild(option);
-            });
+            if (monitors && monitors.length > 0) {
+                // Add monitors
+                monitors.forEach(monitor => {
+                    const option = document.createElement('option');
+                    option.value = monitor.id;
+                    option.textContent = `${monitor.displayName} (${monitor.location})`; 
+                    select.appendChild(option);
+                });
+            } else {
+                throw new Error('No monitors available');
+            }
         } catch (error) {
-            utils.showError(`Failed to load monitors: ${error.message}`);
+            console.error('Failed to load monitors:', error);
+            throw error;
         }
     }
-
+    
     /**
      * Sets up event listeners
      */
     setupEventListeners() {
-        // Main control elements
         const dataTypeSelect = utils.getElement('dataType');
         const fetchButton = utils.getElement('fetchData');
         const monitorSelect = utils.getElement('monitor');
         const startTimeInput = utils.getElement('startTime');
         const endTimeInput = utils.getElement('endTime');
 
-        // Event listeners for main controls
         dataTypeSelect.addEventListener('change', () => this.handleDataTypeChange());
         fetchButton.addEventListener('click', () => this.fetchAndDisplayData());
         monitorSelect.addEventListener('change', () => this.handleMonitorChange());
-        
-        // Time input validation
         startTimeInput.addEventListener('change', () => this.validateTimeInputs());
         endTimeInput.addEventListener('change', () => this.validateTimeInputs());
 
-        // Add keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && e.ctrlKey) {
                 this.fetchAndDisplayData();
@@ -147,11 +161,16 @@ class NoiseMonitoringApp {
             return false;
         }
 
-        const timeDiff = endTime - startTime;
-        const maxDiff = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
 
-        if (timeDiff > maxDiff) {
-            utils.showError('Time range cannot exceed 7 days');
+        if (startTime < sevenDaysAgo) {
+            utils.showError('Data is only available for the last 7 days');
+            return false;
+        }
+
+        if (endTime > now) {
+            utils.showError('End time cannot be in the future');
             return false;
         }
 
@@ -163,11 +182,6 @@ class NoiseMonitoringApp {
      */
     async fetchAndDisplayData() {
         try {
-            console.log('Request parameters:', {
-                monitor,
-                startTime: utils.formatDate(startTime),
-                endTime: utils.formatDate(endTime)
-            });
             if (this.isLoading) return;
             this.isLoading = true;
             utils.showLoading(true);
@@ -180,6 +194,13 @@ class NoiseMonitoringApp {
             const dataType = utils.getElement('dataType').value;
             const startTime = new Date(utils.getElement('startTime').value);
             const endTime = dataType === 'realtime' ? new Date() : new Date(utils.getElement('endTime').value);
+
+            console.log('Request parameters:', {
+                monitor,
+                startTime: startTime.toISOString(),
+                endTime: endTime.toISOString(),
+                dataType
+            });
 
             if (!this.validateTimeInputs()) {
                 return;
@@ -199,9 +220,19 @@ class NoiseMonitoringApp {
                 }, 5 * 60 * 1000); // Update every 5 minutes
             }
 
+            if (dataType === 'historical') {
+                this.updateInterval = setInterval(async () => {
+                    const newEndTime = new Date();
+                    const newStartTime = new Date(utils.getElement('startTime').value); // 使用原始开始时间
+                    await this.updateChartData(monitor, newStartTime, newEndTime);
+                }, 5 * 60 * 1000); // 每5分钟运行一次
+            }
+            
+
             this.updateUrlParameters();
 
         } catch (error) {
+            console.error('Error in fetchAndDisplayData:', error);
             utils.showError(error.message);
         } finally {
             this.isLoading = false;
@@ -214,48 +245,22 @@ class NoiseMonitoringApp {
      */
     async updateChartData(monitor, startTime, endTime) {
         try {
-            const data = await api.getData(monitor, utils.formatDate(startTime), utils.formatDate(endTime));
+            console.log('Updating chart data...');
+            const data = await api.getData(monitor, startTime, endTime);
     
-            console.log('Raw API data:', data);
-    
-            // 验证数据有效性
-            const validData = data.map(item => {
-                if (!item.datetime || isNaN(item.laeq) || isNaN(item.la10) || isNaN(item.la90)) {
-                    console.warn('Invalid data item:', item);
-                    return null;
-                }
-    
-                return {
-                    datetime: new Date(item.datetime), // 转换为 Date 对象
-                    laeq: parseFloat(item.laeq),
-                    la10: parseFloat(item.la10),
-                    la90: parseFloat(item.la90),
-                    lafmax: parseFloat(item.lafmax),
-                    lceq: parseFloat(item.lceq),
-                    lcfmax: parseFloat(item.lcfmax),
-                    lc10: parseFloat(item.lc10),
-                    lc90: parseFloat(item.lc90),
-                };
-            }).filter(Boolean); // 过滤无效数据
-    
-            if (validData.length === 0) {
-                utils.showError('No valid data points found');
-                return;
+            if (!data || data.length === 0) {
+                throw new Error('No data available for the selected time range');
             }
     
-            console.log('Processed data:', validData);
-            console.log('API Response Data:', data);
-            console.log('Valid Data:', validData);
-
-            chartModule.updateChart(validData);
-            this.updateDataInfo(startTime, endTime, validData.length);
+            console.log('Received data points:', data.length);
+            chartModule.updateChart(data);
+            this.updateDataInfo(startTime, endTime, data.length);
     
         } catch (error) {
             console.error('Error in updateChartData:', error);
-            utils.showError(`Failed to update chart: ${error.message}`);
+            throw error;
         }
     }
-    
 
     /**
      * Updates the data information display
@@ -314,7 +319,20 @@ class NoiseMonitoringApp {
             this.handleDataTypeChange();
         }
     }
+
+    /**
+     * Cleans up resources when closing
+     */
+    cleanup() {
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+            this.updateInterval = null;
+        }
+
+        if (chartModule.chart) {
+            chartModule.destroyChart();
+        }
+    }
 }
 
-// Export the class
 export default NoiseMonitoringApp;

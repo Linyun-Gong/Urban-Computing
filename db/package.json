@@ -1,0 +1,22 @@
+{
+  "name": "noise-monitoring-db",
+  "version": "1.0.0",
+  "description": "Database service for noise monitoring system",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.11.4",
+    "node-schedule": "^2.1.1"
+  }
+}
